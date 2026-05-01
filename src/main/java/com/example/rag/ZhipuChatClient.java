@@ -18,7 +18,7 @@ public class ZhipuChatClient {
         this.properties = properties;
         this.restClient = builder
                 .baseUrl(properties.chatUrl())
-                .defaultHeader("Authorization", "Bearer " + properties.apiKey())
+                .defaultHeader("Authorization", "Bearer " + properties.normalizedApiKey())
                 .build();
     }
 

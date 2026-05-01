@@ -10,19 +10,16 @@ import org.springframework.web.client.RestClient;
 
 @Configuration
 @EnableConfigurationProperties({
-        RagProperties.class,
-        ZhipuProperties.class
+        ZhipuProperties.class,
+        RagProperties.class
 })
 public class AiConfig {
 
     @Bean
-    public EmbeddingModel embeddingModel(RestClient.Builder restClientBuilder,
-                                         ZhipuProperties zhipuProperties) {
-        return new ZhipuEmbeddingModel(restClientBuilder, zhipuProperties);
-    }
-
-    @Bean
-    public VectorStore vectorStore(EmbeddingModel embeddingModel) {
-        return SimpleVectorStore.builder(embeddingModel).build();
+    public EmbeddingModel embeddingModel(
+            RestClient.Builder builder,
+            ZhipuProperties properties
+    ) {
+        return new ZhipuEmbeddingModel(builder, properties);
     }
 }

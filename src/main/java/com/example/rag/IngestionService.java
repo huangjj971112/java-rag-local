@@ -1,21 +1,21 @@
 package com.example.rag;
 
-import com.example.rag.RagProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.VectorStore;
-import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.*;
 
 @Component
-public class IngestionService implements CommandLineRunner {
+public class IngestionService {
 
     private static final Logger log = LoggerFactory.getLogger(IngestionService.class);
 
@@ -27,17 +27,15 @@ public class IngestionService implements CommandLineRunner {
         this.ragProperties = ragProperties;
     }
 
-    @Override
-    public void run(String... args) throws Exception {
+    public void ingest() throws Exception {
 
-        String location = ragProperties.docsPath(); // classpath:/docs/**
         PathMatchingResourcePatternResolver resolver =
                 new PathMatchingResourcePatternResolver();
-        log.info("加载文件");
-        Resource[] resources = resolver.getResources(location);
+
+        Resource[] resources = resolver.getResources(ragProperties.docsPath());
 
         if (resources.length == 0) {
-            log.warn("No files found in {}", location);
+            log.warn("没有找到文档: {}", ragProperties.docsPath());
             return;
         }
 
@@ -45,6 +43,9 @@ public class IngestionService implements CommandLineRunner {
 
         for (Resource resource : resources) {
             try {
+                String fileName = Objects.requireNonNullElse(resource.getFilename(), "未知文件");
+                String source = resource.getDescription();
+
                 TikaDocumentReader reader = new TikaDocumentReader(resource);
 
                 List<Document> docs = reader.get().stream()
@@ -52,28 +53,93 @@ public class IngestionService implements CommandLineRunner {
                         .map(doc -> new Document(
                                 doc.getText(),
                                 Map.of(
-                                        "fileName", Objects.requireNonNull(resource.getFilename()),
-                                        "source", resource.getDescription()
+                                        "fileName", fileName,
+                                        "source", source
                                 )
                         ))
                         .toList();
 
                 allDocs.addAll(docs);
 
-                log.info("Loaded: {}", resource.getFilename());
+                log.info("文档读取成功: {}, 段落数: {}", fileName, docs.size());
 
             } catch (Exception e) {
-                log.warn("Skip file: {}, reason: {}", resource.getFilename(), e.getMessage());
+                log.warn("文档读取失败，已跳过: {}, 原因: {}",
+                        resource.getFilename(),
+                        e.getMessage());
             }
         }
 
-        // 切分
-        TokenTextSplitter splitter = new TokenTextSplitter();
+        TokenTextSplitter splitter = new TokenTextSplitter(300, 50, 5, 10000, true);
         List<Document> splitDocs = splitter.apply(allDocs);
-        log.info("加载文件1");
-        // 入库
-        vectorStore.add(splitDocs);
 
-        log.info("✅ Ingest done: {} docs → {} chunks", allDocs.size(), splitDocs.size());
+        // 应用层去重
+        Set<String> seenHashes = new HashSet<>();
+        List<Document> uniqueDocs = new ArrayList<>();
+
+        for (Document doc : splitDocs) {
+            String text = doc.getText();
+
+            if (text == null || text.isBlank()) {
+                continue;
+            }
+
+            String chunkHash = sha256(text);
+
+            if (!seenHashes.add(chunkHash)) {
+                continue;
+            }
+
+            Map<String, Object> metadata = new HashMap<>(doc.getMetadata());
+            metadata.put("chunkHash", chunkHash);
+
+            uniqueDocs.add(new Document(text, metadata));
+        }
+
+        log.info("切分完成: 原始 chunks={}, 去重后 chunks={}",
+                splitDocs.size(),
+                uniqueDocs.size());
+
+        for (int i = 0; i < uniqueDocs.size(); i++) {
+            Document doc = uniqueDocs.get(i);
+
+            try {
+                vectorStore.add(List.of(doc));
+
+                log.info("chunk入库成功: {}/{} fileName={} hash={}",
+                        i + 1,
+                        uniqueDocs.size(),
+                        doc.getMetadata().get("fileName"),
+                        doc.getMetadata().get("chunkHash"));
+
+                Thread.sleep(300);
+
+            } catch (Exception e) {
+                log.warn("chunk入库失败，已跳过: {}/{}, fileName={}, 原因: {}",
+                        i + 1,
+                        uniqueDocs.size(),
+                        doc.getMetadata().get("fileName"),
+                        e.getMessage());
+            }
+        }
+
+        log.info("ingest done: 文档数={}, chunks={}", allDocs.size(), uniqueDocs.size());
+    }
+
+    private String sha256(String text) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(text.getBytes(StandardCharsets.UTF_8));
+
+            StringBuilder hex = new StringBuilder();
+            for (byte b : hash) {
+                hex.append(String.format("%02x", b));
+            }
+
+            return hex.toString();
+
+        } catch (Exception e) {
+            throw new RuntimeException("生成 hash 失败", e);
+        }
     }
 }

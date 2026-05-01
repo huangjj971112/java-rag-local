@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: java-rag-local
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/rag_db
+    username: postgres
+    password: 123456
+
+  ai:
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+        dimensions: 2048
+        index-type: NONE
+
+app:
+  zhipu:
+    api-key: ${ZHIPU_API_KEY:}
+    chat-model: glm-4-flash
+    embedding-model: embedding-3
+    embedding-url: https://open.bigmodel.cn/api/paas/v4/embeddings
+    chat-url: https://open.bigmodel.cn/api/paas/v4/chat/completions
+
+  rag:
+    docs-path: classpath:/docs/*.docx
+    top-k: 3
+    max-context-chars: 1000
+
+logging:
+  level:
+    org.apache.pdfbox.pdmodel.font.FileSystemFontProvider: ERROR

@@ -31,7 +31,7 @@ public class ZhipuChatService {
 
         Map response = restClient.post()
                 .uri(properties.chatUrl())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.apiKey())
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + properties.normalizedApiKey())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(body)
                 .retrieve()

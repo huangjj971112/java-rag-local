@@ -10,6 +10,22 @@ public record ZhipuProperties(
         String chatModel,
         String chatUrl
 ) {
+    public String normalizedApiKey() {
+        if (apiKey == null) {
+            return null;
+        }
+
+        String normalized = apiKey.trim();
+        if (normalized.regionMatches(true, 0, "Bearer ", 0, "Bearer ".length())) {
+            normalized = normalized.substring("Bearer ".length()).trim();
+        }
+        if (normalized.regionMatches(true, 0, "key=", 0, "key=".length())) {
+            normalized = normalized.substring("key=".length()).trim();
+        }
+
+        return normalized;
+    }
+
     public String embeddingUrl() {
         return embeddingUrl == null || embeddingUrl.isBlank()
                 ? "https://open.bigmodel.cn/api/paas/v4/embeddings"
