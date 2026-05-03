@@ -4,6 +4,7 @@ package com.example.rag.controller;
 import com.example.rag.RagProperties;
 import com.example.rag.ZhipuChatClient;
 import com.example.rag.ZhipuChatService;
+import com.example.rag.dto.Source;
 import com.example.rag.model.Ask1Source;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -69,7 +70,9 @@ public class RagController {
                 .map(doc -> new Source(
                         String.valueOf(doc.getMetadata().get("fileName")),
                         String.valueOf(doc.getMetadata().get("source")),
-                        doc.getText()
+                        doc.getText(),
+                        0.0,
+                        null
                 ))
                 .toList();
 
@@ -81,11 +84,6 @@ public class RagController {
             List<Source> sources
     ) {}
 
-    public record Source(
-            String fileName,
-            String source,
-            String content
-    ) {}
 
 
     @GetMapping("/askFromLocalDocx")
@@ -231,11 +229,27 @@ public class RagController {
                 .map(doc -> new Source(
                         String.valueOf(doc.getMetadata().get("fileName")),
                         String.valueOf(doc.getMetadata().get("source")),
-                        doc.getText()
+                        String.valueOf(doc.getMetadata().get("chunkHash")),
+                        doc.getScore(),
+                        shorten(doc.getText(), 300)
                 ))
                 .toList();
 
         return new RagAnswer(answer, sources);
+    }
+
+    private String shorten(String text, int maxLength) {
+        if (text == null) {
+            return "";
+        }
+
+        String cleanText = text.replaceAll("\\s+", " ").trim();
+
+        if (cleanText.length() <= maxLength) {
+            return cleanText;
+        }
+
+        return cleanText.substring(0, maxLength) + "...";
     }
 
 

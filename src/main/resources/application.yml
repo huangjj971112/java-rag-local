@@ -30,3 +30,11 @@ app:
 logging:
   level:
     org.apache.pdfbox.pdmodel.font.FileSystemFontProvider: ERROR
+
+
+  server:
+    servlet:
+      encoding:
+        charset: UTF-8
+        enabled: true
+        force: true

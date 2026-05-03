@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+</head>
+<body>
+<pre id="output"></pre>
+
+<script>
+    const output = document.getElementById("output");
+
+    const eventSource = new EventSource(
+        "http://localhost:8080/rag/stream/ask?question=" + encodeURIComponent("毛泽东思想是什么")
+    );
+
+    eventSource.addEventListener("message", function (event) {
+        output.textContent += event.data;
+    });
+
+    eventSource.addEventListener("done", function () {
+        eventSource.close();
+    });
+</script>
+</body>
+</html>
