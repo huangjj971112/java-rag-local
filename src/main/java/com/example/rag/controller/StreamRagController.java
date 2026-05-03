@@ -1,49 +1,50 @@
 package com.example.rag.controller;
 
 import com.example.rag.RagProperties;
+import com.example.rag.chat.ChatMemory;
+import com.example.rag.chat.ChatMessage;
+import com.example.rag.dto.SourceVO;
 import com.example.rag.ZhipuChatClient;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
-
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.stream.Collectors;
 
+@Slf4j
 @RestController
 @RequestMapping("/rag/stream")
+@RequiredArgsConstructor
 @CrossOrigin(origins = "http://localhost:63342")
 public class StreamRagController {
 
     private final VectorStore vectorStore;
-    private final ZhipuChatClient zhipuChatClient;
     private final RagProperties ragProperties;
+    private final ZhipuChatClient zhipuChatClient;
+    private final ChatMemory chatMemory;
 
-    private final ExecutorService executorService = Executors.newCachedThreadPool();
+    private final ExecutorService executorService = Executors.newFixedThreadPool(4);
 
-    public StreamRagController(
-            VectorStore vectorStore,
-            ZhipuChatClient zhipuChatClient,
-            RagProperties ragProperties
-    ) {
-        this.vectorStore = vectorStore;
-        this.zhipuChatClient = zhipuChatClient;
-        this.ragProperties = ragProperties;
-    }
-
-    @GetMapping(value = "ask", produces = "text/event-stream;charset=UTF-8")
-    public SseEmitter stream(@RequestParam("question") String question) {
+    @GetMapping(value = "/ask", produces = "text/event-stream;charset=UTF-8")
+    public SseEmitter stream(@RequestParam("question") String question,
+                             @RequestParam(value = "sessionId", defaultValue = "default") String sessionId) {
 
         SseEmitter emitter = new SseEmitter(60_000L);
 
         executorService.submit(() -> {
             try {
-                // 1. 检索
+                // 1. 查询历史
+                List<ChatMessage> history = chatMemory.get(sessionId);
+                List<ChatMessage> limitedHistory = limitHistory(history);
+
+                // 2. RAG 检索
                 List<Document> docs = vectorStore.similaritySearch(
                         SearchRequest.builder()
                                 .query(question)
@@ -51,45 +52,93 @@ public class StreamRagController {
                                 .build()
                 );
 
-                // 2. 先发送 sources
-                List<String> sources = docs.stream()
-                        .map(doc -> String.valueOf(doc.getMetadata().getOrDefault("fileName", "未知文件"))
-                                + "："
-                                + shorten(doc.getText(), 120))
-                        .toList();
+                // 3. 先返回 sources
+                List<SourceVO> sources = buildSources(docs);
 
                 emitter.send(SseEmitter.event()
                         .name("sources")
                         .data(sources, MediaType.APPLICATION_JSON));
 
-                // 3. 拼接上下文
-                String context = buildContext(docs, ragProperties.maxContextChars());
+                // 4. 构造带引用编号的上下文
+                String context = buildContextWithRefs(docs, ragProperties.maxContextChars());
 
-                // 4. prompt
                 String prompt = """
-                    你是一个严谨的本地知识库问答助手。
-                    请只根据【资料】回答【问题】。
-                    如果资料中没有答案，请回答：资料中没有找到相关信息。
-                    不要编造内容。
+                        你是一个严谨的本地知识库问答助手。
+                        请结合【历史对话】和【资料】回答【问题】。
+                        如果资料中没有答案，请回答：资料中没有找到相关信息。
+                        不要编造内容。
 
-                    【资料】
-                    %s
+                        回答要求：
+                        1. 回答中必须使用引用编号，例如：[1]、[2]
+                        2. 引用编号必须来自资料编号
+                        3. 不要使用不存在的编号
+                        4. 如果用户的问题中出现“它”“这个”“上面说的”等指代，请结合历史对话理解
 
-                    【问题】
-                    %s
-                    """.formatted(context, question);
+                        【资料】
+                        %s
 
-                // 5. 真流式调用
-                zhipuChatClient.streamChat(prompt, token -> {
+                        【问题】
+                        %s
+                        """.formatted(context, question);
+
+                // 5. 构造 messages
+                List<Map<String, String>> messages = new ArrayList<>();
+
+                messages.add(Map.of(
+                        "role", "system",
+                        "content", "你是一个严谨的本地知识库问答助手。请结合历史对话和检索资料回答问题。"
+                ));
+
+                for (ChatMessage msg : limitedHistory) {
+                    messages.add(Map.of(
+                            "role", msg.role(),
+                            "content", msg.content()
+                    ));
+                }
+
+                messages.add(Map.of(
+                        "role", "user",
+                        "content", prompt
+                ));
+
+                // 6. 打印入参，确认多轮是否生效
+                log.info("本次会话 sessionId={}", sessionId);
+                log.info("历史消息数量={}, 实际携带历史消息数量={}", history.size(), limitedHistory.size());
+                log.info("最终发送给智谱 messages 数量={}", messages.size());
+
+                for (int i = 0; i < messages.size(); i++) {
+                    Map<String, String> msg = messages.get(i);
+                    log.info("messages[{}].role={}", i, msg.get("role"));
+                    log.info("messages[{}].content={}", i, shorten(msg.get("content"), 300));
+                }
+
+                // 7. 注意：先保存当前用户问题
+                chatMemory.add(sessionId, new ChatMessage("user", question));
+
+                // 8. 流式调用，并收集完整回答
+                StringBuilder answerBuilder = new StringBuilder();
+
+                zhipuChatClient.streamChat(messages, token -> {
                     try {
+                        answerBuilder.append(token);
+
                         emitter.send(SseEmitter.event()
                                 .name("message")
                                 .data(token, MediaType.valueOf("text/plain;charset=UTF-8")));
-                    } catch (Exception ignored) {
+                    } catch (Exception e) {
+                        log.error("SSE 发送 token 失败", e);
                     }
                 });
 
-                // 6. done
+                // 9. 保存 assistant 回答
+                String answer = answerBuilder.toString();
+                if (!answer.isBlank()) {
+                    chatMemory.add(sessionId, new ChatMessage("assistant", answer));
+                }
+
+                log.info("本轮回答已写入 memory，当前会话消息数量={}", chatMemory.get(sessionId).size());
+
+                // 10. done
                 emitter.send(SseEmitter.event()
                         .name("done")
                         .data("[DONE]"));
@@ -97,52 +146,97 @@ public class StreamRagController {
                 emitter.complete();
 
             } catch (Exception e) {
+                log.error("RAG 流式问答失败", e);
+
                 try {
                     emitter.send(SseEmitter.event()
                             .name("error")
-                            .data(e.getMessage()));
-                } catch (Exception ignored) {}
+                            .data(e.getMessage(), MediaType.TEXT_PLAIN));
+                } catch (Exception ignored) {
+                }
 
-                emitter.completeWithError(e);
+                emitter.complete();
             }
         });
 
         return emitter;
     }
 
-    private String buildContext(List<Document> docs, Integer maxContextChars) {
+    @DeleteMapping("/memory")
+    public String clearMemory(@RequestParam(value = "sessionId", defaultValue = "default") String sessionId) {
+        chatMemory.clear(sessionId);
+        return "已清空会话：" + sessionId;
+    }
+
+    private List<SourceVO> buildSources(List<Document> docs) {
+        List<SourceVO> sources = new ArrayList<>();
+
+        for (int i = 0; i < docs.size(); i++) {
+            Document doc = docs.get(i);
+
+            String fileName = String.valueOf(
+                    doc.getMetadata().getOrDefault("fileName", "未知文件")
+            );
+
+            sources.add(new SourceVO(
+                    i + 1,
+                    fileName,
+                    shorten(doc.getText(), 200)
+            ));
+        }
+
+        return sources;
+    }
+
+    private String buildContextWithRefs(List<Document> docs, Integer maxContextChars) {
         int limit = maxContextChars == null ? 3000 : maxContextChars;
 
         StringBuilder context = new StringBuilder();
 
-        for (Document doc : docs) {
+        for (int i = 0; i < docs.size(); i++) {
+            if (context.length() >= limit) {
+                break;
+            }
+
+            Document doc = docs.get(i);
             String text = doc.getText();
 
             if (text == null || text.isBlank()) {
                 continue;
             }
 
-            String separator = "\n\n---\n\n";
+            text = text.length() > 500 ? text.substring(0, 500) : text;
 
-            if (context.length() + separator.length() + text.length() > limit) {
+            String chunk = "[" + (i + 1) + "] " + text;
+            String separator = context.isEmpty() ? "" : "\n\n---\n\n";
+
+            if (context.length() + separator.length() + chunk.length() > limit) {
                 int remaining = limit - context.length() - separator.length();
 
-                if (remaining > 100) {
+                if (remaining > 50) {
                     context.append(separator)
-                            .append(text, 0, Math.min(remaining, text.length()));
+                            .append(chunk, 0, Math.min(remaining, chunk.length()));
                 }
 
                 break;
             }
 
-            if (!context.isEmpty()) {
-                context.append(separator);
-            }
-
-            context.append(text);
+            context.append(separator).append(chunk);
         }
 
         return context.toString();
+    }
+
+    private List<ChatMessage> limitHistory(List<ChatMessage> history) {
+        if (history == null || history.isEmpty()) {
+            return List.of();
+        }
+
+        if (history.size() <= 6) {
+            return history;
+        }
+
+        return history.subList(history.size() - 6, history.size());
     }
 
     private String shorten(String text, int maxLength) {
@@ -150,12 +244,10 @@ public class StreamRagController {
             return "";
         }
 
-        String cleanText = text.replaceAll("\\s+", " ").trim();
-
-        if (cleanText.length() <= maxLength) {
-            return cleanText;
+        if (text.length() <= maxLength) {
+            return text;
         }
 
-        return cleanText.substring(0, maxLength) + "...";
+        return text.substring(0, maxLength) + "...";
     }
 }

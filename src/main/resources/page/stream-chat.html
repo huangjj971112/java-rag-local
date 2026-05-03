@@ -2,10 +2,11 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8" />
-    <title>本地 RAG 流式问答</title>
+    <title>本地 RAG 多轮对话</title>
+
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial,serif;
             background: #f5f5f5;
             margin: 0;
             padding: 0;
@@ -20,16 +21,11 @@
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
         }
 
-        h2 {
-            margin-top: 0;
-        }
-
         textarea {
             width: 100%;
             height: 90px;
             padding: 12px;
             font-size: 16px;
-            box-sizing: border-box;
             border-radius: 8px;
             border: 1px solid #ddd;
             resize: none;
@@ -38,23 +34,17 @@
         button {
             margin-top: 12px;
             padding: 10px 20px;
-            font-size: 16px;
-            border: none;
             border-radius: 8px;
+            border: none;
             background: #1677ff;
             color: white;
             cursor: pointer;
         }
 
-        button:disabled {
-            background: #aaa;
-            cursor: not-allowed;
-        }
-
         .answer {
-            margin-top: 24px;
+            margin-top: 20px;
             padding: 16px;
-            min-height: 160px;
+            min-height: 120px;
             background: #fafafa;
             border-radius: 8px;
             border: 1px solid #eee;
@@ -68,30 +58,43 @@
             background: #fffbe6;
             border: 1px solid #ffe58f;
             border-radius: 8px;
-            font-size: 14px;
-            line-height: 1.6;
         }
 
         .source-item {
-            margin-bottom: 8px;
+            margin-top: 10px;
+            padding: 10px;
+            background: #fff;
+            border-radius: 6px;
+            border: 1px solid #f0e1a0;
+        }
+
+        .ref-link {
+            color: #1677ff;
+            cursor: pointer;
+        }
+
+        mark {
+            background: #ffe58f;
+            padding: 2px 4px;
+            border-radius: 4px;
         }
     </style>
 </head>
+
 <body>
 
 <div class="container">
-    <h2>本地 RAG 流式问答</h2>
+    <h2>RAG 多轮对话</h2>
 
-    <textarea id="question" placeholder="请输入问题，例如：毛泽东思想是什么？">毛泽东思想是什么</textarea>
+    <label for="question"></label><textarea id="question">毛泽东思想是什么</textarea>
 
     <br />
+    <button onclick="ask()">提问</button>
 
-    <button id="askBtn" onclick="ask()">开始提问</button>
+    <div id="answer" class="answer"></div>
 
-    <div class="answer" id="answer"></div>
-
-    <div class="sources" id="sources" style="display:none;">
-        <strong>引用来源：</strong>
+    <div id="sources" class="sources" style="display:none;">
+        <b>引用来源：</b>
         <div id="sourceList"></div>
     </div>
 </div>
@@ -99,12 +102,14 @@
 <script>
     let eventSource = null;
 
+    // 👉 每个浏览器一个 session
+    const sessionId = "user-" + Math.random().toString(36).substring(2);
+
     function ask() {
         const question = document.getElementById("question").value.trim();
         const answerEl = document.getElementById("answer");
-        const sourcesEl = document.getElementById("sources");
         const sourceListEl = document.getElementById("sourceList");
-        const askBtn = document.getElementById("askBtn");
+        const sourcesEl = document.getElementById("sources");
 
         if (!question) {
             alert("请输入问题");
@@ -115,63 +120,101 @@
             eventSource.close();
         }
 
-        answerEl.textContent = "";
+        const keywords = extractKeywords(question);
+
+        answerEl.innerHTML = "";
         sourceListEl.innerHTML = "";
         sourcesEl.style.display = "none";
-        askBtn.disabled = true;
-        askBtn.textContent = "回答中...";
 
-        const url = "http://localhost:8080/rag/stream/ask?question=" + encodeURIComponent(question);
+        const url = "http://localhost:8080/rag/stream/ask"
+            + "?question=" + encodeURIComponent(question)
+            + "&sessionId=" + sessionId;
 
         eventSource = new EventSource(url);
 
+        // ===== 回答 =====
         eventSource.addEventListener("message", function (event) {
-            console.log("收到 token：", event.data);
-            answerEl.textContent += event.data;
+            let text = escapeHtml(event.data);
+
+            text = highlight(text, keywords);
+
+            text = text.replace(/\[(\d+)]/g, (m, n) => {
+                return `<span class="ref-link" onclick="scrollToSource(${n})">[${n}]</span>`;
+            });
+
+            answerEl.innerHTML += text;
         });
 
+        // ===== 来源 =====
         eventSource.addEventListener("sources", function (event) {
             sourcesEl.style.display = "block";
 
-            try {
-                const sources = JSON.parse(event.data);
+            const sources = JSON.parse(event.data);
 
-                sourceListEl.innerHTML = sources.map(item => {
-                    return `<div class="source-item">📄 ${escapeHtml(item)}</div>`;
-                }).join("");
-
-            } catch (e) {
-                sourceListEl.innerHTML = `<div class="source-item">${escapeHtml(event.data)}</div>`;
-            }
+            sourceListEl.innerHTML = sources.map(item => `
+                <div id="source-${item.ref}" class="source-item">
+                    <b>[${item.ref}] ${escapeHtml(item.fileName)}</b>
+                    <div>${highlight(escapeHtml(item.content), keywords)}</div>
+                </div>
+            `).join("");
         });
 
+        // ===== 完成 =====
         eventSource.addEventListener("done", function () {
-            askBtn.disabled = false;
-            askBtn.textContent = "开始提问";
             eventSource.close();
         });
 
-        eventSource.addEventListener("error", function (event) {
-            askBtn.disabled = false;
-            askBtn.textContent = "开始提问";
-
-            if (eventSource) {
-                eventSource.close();
-            }
-
-            if (!answerEl.textContent) {
-                answerEl.textContent = "请求失败，请检查后端服务是否启动。";
-            }
+        // ===== 错误 =====
+        eventSource.addEventListener("error", function () {
+            eventSource.close();
+            answerEl.innerText = "请求失败";
         });
+    }
+
+    // ===== 滚动到引用 =====
+    function scrollToSource(ref) {
+        const el = document.getElementById("source-" + ref);
+        if (el) {
+            el.scrollIntoView({behavior: "smooth", block: "center"});
+            el.style.outline = "2px solid #1677ff";
+
+            setTimeout(() => {
+                el.style.outline = "none";
+            }, 1500);
+        }
+    }
+
+    // ===== 提取关键词 =====
+    function extractKeywords(text) {
+        return text
+            .replace(/[？?。,.，、！!]/g, " ")
+            .split(/\s+/)
+            .filter(w => w.length >= 2);
+    }
+
+    // ===== 高亮 =====
+    function highlight(text, keywords) {
+        if (!keywords.length) return text;
+
+        let result = text;
+
+        keywords.forEach(k => {
+            const reg = new RegExp("(" + escapeRegExp(k) + ")", "gi");
+            result = result.replace(reg, "<mark>$1</mark>");
+        });
+
+        return result;
+    }
+
+    function escapeRegExp(str) {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
 
     function escapeHtml(text) {
         return String(text)
             .replaceAll("&", "&amp;")
             .replaceAll("<", "&lt;")
-            .replaceAll(">", "&gt;")
-            .replaceAll('"', "&quot;")
-            .replaceAll("'", "&#039;");
+            .replaceAll(">", "&gt;");
     }
 </script>
 

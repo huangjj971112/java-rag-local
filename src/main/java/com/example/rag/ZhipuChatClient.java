@@ -13,7 +13,6 @@ import java.util.function.Consumer;
 
 import java.util.List;
 import java.util.Map;
-import java.util.function.Consumer;
 
 @Slf4j
 @Component
@@ -77,15 +76,10 @@ public class ZhipuChatClient {
     }
 
 
-    public void streamChat(String prompt, Consumer<String> onToken) {
+    public void streamChat(List<Map<String, String>> messages, Consumer<String> onToken) {
         Map<String, Object> body = Map.of(
                 "model", properties.chatModel(),
-                "messages", List.of(
-                        Map.of(
-                                "role", "user",
-                                "content", prompt
-                        )
-                ),
+                "messages", messages,
                 "stream", true
         );
 
