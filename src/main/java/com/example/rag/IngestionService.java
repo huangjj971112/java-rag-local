@@ -1,6 +1,7 @@
 package com.example.rag;
 
 import com.example.rag.dto.DeleteFileResponseDTO;
+import com.example.rag.dto.FileInfoDTO;
 import com.example.rag.dto.UploadResponseDTO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -355,5 +356,31 @@ public class IngestionService {
                 .deletedRows(rows)
                 .message("删除成功")
                 .build();
+    }
+
+
+    public List<FileInfoDTO> listFiles() {
+        String sql = """
+            SELECT
+                metadata ->> 'fileName' AS file_name,
+                metadata ->> 'fileHash' AS file_hash,
+                COUNT(*) AS chunks
+            FROM vector_store
+            WHERE metadata ->> 'fileHash' IS NOT NULL
+            GROUP BY metadata ->> 'fileName', metadata ->> 'fileHash'
+            ORDER BY metadata ->> 'fileName'
+            """;
+
+         List<FileInfoDTO> list =jdbcTemplate.query(sql, (rs, rowNum) ->
+                FileInfoDTO.builder()
+                        .fileName(rs.getString("file_name"))
+                        .fileHash(rs.getString("file_hash"))
+                        .chunks(rs.getInt("chunks"))
+                        .build()
+        );
+
+        log.info("查询数据列表长度{}",list.size());
+
+        return list;
     }
 }

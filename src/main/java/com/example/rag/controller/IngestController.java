@@ -2,6 +2,7 @@ package com.example.rag.controller;
 
 import com.example.rag.IngestionService;
 import com.example.rag.dto.DeleteFileResponseDTO;
+import com.example.rag.dto.FileInfoDTO;
 import com.example.rag.dto.UploadResponseDTO;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -9,6 +10,7 @@ import org.springframework.web.multipart.MultipartFile;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -40,5 +42,10 @@ public class IngestController {
     @PostMapping("/deleteFile")
     public DeleteFileResponseDTO deleteFile(@RequestParam("fileHash") String fileHash) {
         return ingestionService.deleteByFileHash(fileHash);
+    }
+
+    @GetMapping("/files")
+    public List<FileInfoDTO> listFiles() {
+        return ingestionService.listFiles();
     }
 }
