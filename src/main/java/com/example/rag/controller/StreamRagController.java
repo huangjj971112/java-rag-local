@@ -22,7 +22,6 @@ import java.util.concurrent.Executors;
 @RestController
 @RequestMapping("/rag/stream")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "http://localhost:63342")
 public class StreamRagController {
 
     private final VectorStore vectorStore;

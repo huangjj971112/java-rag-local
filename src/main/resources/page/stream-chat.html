@@ -6,14 +6,14 @@
 
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial,serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
             background: #f5f5f5;
             margin: 0;
             padding: 0;
         }
 
         .container {
-            width: 800px;
+            width: 900px;
             margin: 40px auto;
             background: #fff;
             border-radius: 12px;
@@ -21,11 +21,16 @@
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
         }
 
+        h2, h3 {
+            margin-top: 0;
+        }
+
         textarea {
             width: 100%;
             height: 90px;
             padding: 12px;
             font-size: 16px;
+            box-sizing: border-box;
             border-radius: 8px;
             border: 1px solid #ddd;
             resize: none;
@@ -33,18 +38,36 @@
 
         button {
             margin-top: 12px;
-            padding: 10px 20px;
-            border-radius: 8px;
+            padding: 8px 16px;
+            font-size: 14px;
             border: none;
+            border-radius: 8px;
             background: #1677ff;
             color: white;
             cursor: pointer;
         }
 
-        .answer {
-            margin-top: 20px;
+        button:disabled {
+            background: #aaa;
+            cursor: not-allowed;
+        }
+
+        .danger-btn {
+            background: #ff4d4f;
+        }
+
+        .section {
+            margin-top: 24px;
             padding: 16px;
-            min-height: 120px;
+            border: 1px solid #eee;
+            border-radius: 10px;
+            background: #fafafa;
+        }
+
+        .answer {
+            margin-top: 16px;
+            padding: 16px;
+            min-height: 140px;
             background: #fafafa;
             border-radius: 8px;
             border: 1px solid #eee;
@@ -58,19 +81,37 @@
             background: #fffbe6;
             border: 1px solid #ffe58f;
             border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.6;
         }
 
         .source-item {
             margin-top: 10px;
             padding: 10px;
             background: #fff;
-            border-radius: 6px;
             border: 1px solid #f0e1a0;
+            border-radius: 8px;
+        }
+
+        .file-item {
+            margin-top: 10px;
+            padding: 12px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+
+        .file-hash {
+            font-size: 12px;
+            color: #666;
+            word-break: break-all;
+            margin-top: 6px;
         }
 
         .ref-link {
             color: #1677ff;
             cursor: pointer;
+            font-weight: bold;
         }
 
         mark {
@@ -78,38 +119,187 @@
             padding: 2px 4px;
             border-radius: 4px;
         }
+
+        .status {
+            margin-top: 8px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        input[type="file"] {
+            margin-top: 8px;
+        }
     </style>
 </head>
 
 <body>
 
 <div class="container">
-    <h2>RAG 多轮对话</h2>
+    <h2>本地 RAG 多轮对话</h2>
 
-    <label for="question"></label><textarea id="question">毛泽东思想是什么</textarea>
+    <div class="section">
+        <h3>上传文档</h3>
 
-    <br />
-    <button onclick="ask()">提问</button>
+        <input type="file" id="fileInput" accept=".docx,.pdf,.txt" />
+        <br />
+        <button id="uploadBtn" onclick="upload()">上传入库</button>
 
-    <div id="answer" class="answer"></div>
+        <div id="uploadResult" class="status"></div>
 
-    <div id="sources" class="sources" style="display:none;">
-        <b>引用来源：</b>
-        <div id="sourceList"></div>
+        <h3 style="margin-top:20px;">已上传文件</h3>
+        <div id="uploadedFileList">
+            <p class="status">暂无上传文件</p>
+        </div>
+    </div>
+
+    <h3 style="margin-top:20px;">按 fileHash 删除</h3>
+    <input
+            id="deleteFileHashInput"
+            placeholder="请输入 fileHash"
+            style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;"
+    />
+    <button class="danger-btn" onclick="deleteFileByInput()">按 fileHash 删除</button>
+
+
+    <div class="section">
+        <h3>知识库问答</h3>
+
+        <textarea id="question" placeholder="请输入问题，例如：毛泽东思想是什么？">毛泽东思想是什么</textarea>
+
+        <br />
+        <button id="askBtn" onclick="ask()">开始提问</button>
+
+        <div id="answer" class="answer"></div>
+
+        <div id="sources" class="sources" style="display:none;">
+            <strong>引用来源：</strong>
+            <div id="sourceList"></div>
+        </div>
     </div>
 </div>
 
 <script>
     let eventSource = null;
 
-    // 👉 每个浏览器一个 session
+    // 每个浏览器页面一个会话
     const sessionId = "user-" + Math.random().toString(36).substring(2);
+
+    // 只保存当前页面上传成功的文件记录
+    let uploadedFiles = [];
+
+    function upload() {
+        const fileInput = document.getElementById("fileInput");
+        const uploadBtn = document.getElementById("uploadBtn");
+        const resultEl = document.getElementById("uploadResult");
+
+        if (!fileInput.files.length) {
+            alert("请选择文件");
+            return;
+        }
+
+        const file = fileInput.files[0];
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = "上传中...";
+        resultEl.innerText = "正在上传并入库，请稍等...";
+
+        fetch("http://localhost:8080/ingest/upload", {
+            method: "POST",
+            body: formData
+        })
+            .then(async res => {
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(text || ("HTTP " + res.status));
+                }
+                return res.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    uploadedFiles.push(data);
+                    renderUploadedFiles();
+
+                    resultEl.innerText =
+                        "上传成功：" + data.fileName +
+                        "，chunks=" + data.chunks;
+                } else {
+                    resultEl.innerText = data.message || "文件已存在，未重复入库";
+                }
+
+                fileInput.value = "";
+            })
+            .catch(err => {
+                resultEl.innerText = "上传失败：" + err.message;
+            })
+            .finally(() => {
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = "上传入库";
+            });
+    }
+
+    function deleteFile(fileHash) {
+        if (!fileHash) {
+            alert("fileHash 为空，无法删除");
+            return;
+        }
+
+        if (!confirm("确定删除这个文件的向量数据吗？")) {
+            return;
+        }
+
+        fetch("http://localhost:8080/ingest/deleteFile?fileHash=" + encodeURIComponent(fileHash), {
+            method: "POST"
+        })
+            .then(async res => {
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(text || ("HTTP " + res.status));
+                }
+                return res.json();
+            })
+            .then(data => {
+                // ✅ 这里就是你说的逻辑
+                if (data.success) {
+                    alert("删除成功，删除 chunks：" + data.deletedRows);
+                } else {
+                    alert(data.message || "删除失败");
+                }
+
+                uploadedFiles = uploadedFiles.filter(item => item.fileHash !== fileHash);
+                renderUploadedFiles();
+            })
+            .catch(err => {
+                alert("删除失败：" + err.message);
+            });
+    }
+
+    function renderUploadedFiles() {
+        const listEl = document.getElementById("uploadedFileList");
+
+        if (!uploadedFiles.length) {
+            listEl.innerHTML = `<p class="status">暂无上传文件</p>`;
+            return;
+        }
+
+        listEl.innerHTML = uploadedFiles.map(item => `
+            <div class="file-item">
+                <b>${escapeHtml(item.fileName || "未知文件")}</b>
+                <div>chunks：${item.chunks ?? 0}</div>
+                <div class="file-hash">fileHash：${escapeHtml(item.fileHash || "")}</div>
+                <button class="danger-btn" onclick="deleteFile('${escapeJs(item.fileHash || "")}')">删除文件</button>
+            </div>
+        `).join("");
+    }
 
     function ask() {
         const question = document.getElementById("question").value.trim();
         const answerEl = document.getElementById("answer");
-        const sourceListEl = document.getElementById("sourceList");
         const sourcesEl = document.getElementById("sources");
+        const sourceListEl = document.getElementById("sourceList");
+        const askBtn = document.getElementById("askBtn");
 
         if (!question) {
             alert("请输入问题");
@@ -125,57 +315,77 @@
         answerEl.innerHTML = "";
         sourceListEl.innerHTML = "";
         sourcesEl.style.display = "none";
+        askBtn.disabled = true;
+        askBtn.textContent = "回答中...";
 
         const url = "http://localhost:8080/rag/stream/ask"
             + "?question=" + encodeURIComponent(question)
-            + "&sessionId=" + sessionId;
+            + "&sessionId=" + encodeURIComponent(sessionId);
 
         eventSource = new EventSource(url);
 
-        // ===== 回答 =====
         eventSource.addEventListener("message", function (event) {
             let text = escapeHtml(event.data);
 
             text = highlight(text, keywords);
 
-            text = text.replace(/\[(\d+)]/g, (m, n) => {
-                return `<span class="ref-link" onclick="scrollToSource(${n})">[${n}]</span>`;
+            text = text.replace(/\[(\d+)]/g, function (match, num) {
+                return `<span class="ref-link" onclick="scrollToSource(${num})">[${num}]</span>`;
             });
 
             answerEl.innerHTML += text;
         });
 
-        // ===== 来源 =====
         eventSource.addEventListener("sources", function (event) {
             sourcesEl.style.display = "block";
 
-            const sources = JSON.parse(event.data);
+            try {
+                const sources = JSON.parse(event.data);
 
-            sourceListEl.innerHTML = sources.map(item => `
-                <div id="source-${item.ref}" class="source-item">
-                    <b>[${item.ref}] ${escapeHtml(item.fileName)}</b>
-                    <div>${highlight(escapeHtml(item.content), keywords)}</div>
-                </div>
-            `).join("");
+                sourceListEl.innerHTML = sources.map(item => {
+                    const fileName = escapeHtml(item.fileName || "未知文件");
+                    const content = highlight(escapeHtml(item.content || ""), keywords);
+
+                    return `
+                        <div id="source-${item.ref}" class="source-item">
+                            <b>[${item.ref}] ${fileName}</b>
+                            <div>${content}</div>
+                        </div>
+                    `;
+                }).join("");
+
+            } catch (e) {
+                sourceListEl.innerHTML = `<div class="source-item">${escapeHtml(event.data)}</div>`;
+            }
         });
 
-        // ===== 完成 =====
         eventSource.addEventListener("done", function () {
-            eventSource.close();
+            askBtn.disabled = false;
+            askBtn.textContent = "开始提问";
+
+            if (eventSource) {
+                eventSource.close();
+            }
         });
 
-        // ===== 错误 =====
         eventSource.addEventListener("error", function () {
-            eventSource.close();
-            answerEl.innerText = "请求失败";
+            askBtn.disabled = false;
+            askBtn.textContent = "开始提问";
+
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            if (!answerEl.innerHTML) {
+                answerEl.textContent = "请求失败，请检查后端服务是否启动。";
+            }
         });
     }
 
-    // ===== 滚动到引用 =====
     function scrollToSource(ref) {
         const el = document.getElementById("source-" + ref);
         if (el) {
-            el.scrollIntoView({behavior: "smooth", block: "center"});
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
             el.style.outline = "2px solid #1677ff";
 
             setTimeout(() => {
@@ -184,37 +394,59 @@
         }
     }
 
-    // ===== 提取关键词 =====
-    function extractKeywords(text) {
-        return text
+    function extractKeywords(question) {
+        return question
             .replace(/[？?。,.，、！!]/g, " ")
             .split(/\s+/)
-            .filter(w => w.length >= 2);
+            .filter(word => word.length >= 2);
     }
 
-    // ===== 高亮 =====
     function highlight(text, keywords) {
-        if (!keywords.length) return text;
+        if (!keywords || keywords.length === 0) {
+            return text;
+        }
 
         let result = text;
 
-        keywords.forEach(k => {
-            const reg = new RegExp("(" + escapeRegExp(k) + ")", "gi");
+        keywords.forEach(keyword => {
+            const safeKeyword = escapeRegExp(keyword);
+            const reg = new RegExp("(" + safeKeyword + ")", "gi");
             result = result.replace(reg, "<mark>$1</mark>");
         });
 
         return result;
     }
 
-    function escapeRegExp(str) {
-        return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    function escapeRegExp(text) {
+        return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
 
     function escapeHtml(text) {
         return String(text)
             .replaceAll("&", "&amp;")
             .replaceAll("<", "&lt;")
-            .replaceAll(">", "&gt;");
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+    }
+
+    function escapeJs(text) {
+        return String(text)
+            .replaceAll("\\", "\\\\")
+            .replaceAll("'", "\\'")
+            .replaceAll('"', '\\"');
+    }
+
+    function deleteFileByInput() {
+        const input = document.getElementById("deleteFileHashInput");
+        const fileHash = input.value.trim();
+
+        if (!fileHash) {
+            alert("请输入 fileHash");
+            return;
+        }
+
+        deleteFile(fileHash);
     }
 </script>
 

@@ -13,6 +13,21 @@ spring:
       port: 6379
       database: 0
 
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+
+server:
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+  tomcat:
+    max-http-form-post-size: 200MB
+    max-swallow-size: 200MB
+
   ai:
     vectorstore:
       pgvector:
@@ -40,9 +55,3 @@ logging:
     org.apache.pdfbox.pdmodel.font.FileSystemFontProvider: ERROR
 
 
-  server:
-    servlet:
-      encoding:
-        charset: UTF-8
-        enabled: true
-        force: true
