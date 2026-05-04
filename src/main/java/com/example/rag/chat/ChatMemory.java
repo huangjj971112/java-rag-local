@@ -15,8 +15,7 @@ import java.util.List;
 public class ChatMemory {
 
     private static final String KEY_PREFIX = "rag:chat:memory:";
-    private static final int MAX_MESSAGES = 6;
-
+    private static final int MAX_MESSAGES = 20;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
 

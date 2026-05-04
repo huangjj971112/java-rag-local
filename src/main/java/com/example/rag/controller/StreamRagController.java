@@ -42,8 +42,12 @@ public class StreamRagController {
             try {
                 // 1. 查询历史
                 List<ChatMessage> history = chatMemory.get(sessionId);
-                List<ChatMessage> limitedHistory = limitHistory(history);
 
+                List<ChatMessage> limitedHistory = limitHistoryByTokens(
+                        history,
+                        ragProperties.maxHistoryMessages(),
+                        ragProperties.maxHistoryTokens()
+                );
                 // 2. RAG 检索
                 List<Document> docs = vectorStore.similaritySearch(
                         SearchRequest.builder()
@@ -96,7 +100,14 @@ public class StreamRagController {
 
                 // 6. 打印入参，确认多轮是否生效
                 log.info("本次会话 sessionId={}", sessionId);
-                log.info("历史消息数量={}, 实际携带历史消息数量={}", history.size(), limitedHistory.size());
+                int historyTokens = limitedHistory.stream()
+                        .mapToInt(m -> estimateTokens(m.content()))
+                        .sum();
+
+                log.info("历史消息数量={}, 实际携带历史消息数量={}, 历史携带估算token={}",
+                        history.size(),
+                        limitedHistory.size(),
+                        historyTokens);
                 log.info("最终发送给智谱 messages 数量={}", messages.size());
 
                 for (int i = 0; i < messages.size(); i++) {
@@ -220,16 +231,68 @@ public class StreamRagController {
         return context.toString();
     }
 
-    private List<ChatMessage> limitHistory(List<ChatMessage> history) {
+    private List<ChatMessage> limitHistoryByTokens(List<ChatMessage> history,
+                                                   int maxMessages,
+                                                   int maxTokens) {
         if (history == null || history.isEmpty()) {
             return List.of();
         }
 
-        if (history.size() <= 6) {
-            return history;
+        List<ChatMessage> result = new ArrayList<>();
+
+        int totalTokens = 0;
+        int count = 0;
+
+        // 从后往前取，优先保留最近对话
+        for (int i = history.size() - 1; i >= 0; i--) {
+            ChatMessage msg = history.get(i);
+
+            if (msg == null || msg.content() == null || msg.content().isBlank()) {
+                continue;
+            }
+
+            int msgTokens = estimateTokens(msg.content());
+
+            if (count >= maxMessages) {
+                break;
+            }
+
+            if (totalTokens + msgTokens > maxTokens) {
+                break;
+            }
+
+            result.add(msg);
+            totalTokens += msgTokens;
+            count++;
         }
 
-        return history.subList(history.size() - 6, history.size());
+        Collections.reverse(result);
+
+        return result;
+    }
+
+    private int estimateTokens(String text) {
+        if (text == null || text.isBlank()) {
+            return 0;
+        }
+
+        int tokens = 0;
+
+        for (char c : text.toCharArray()) {
+            if (isChinese(c)) {
+                tokens += 2;
+            } else if (Character.isWhitespace(c)) {
+                tokens += 0;
+            } else {
+                tokens += 1;
+            }
+        }
+
+        return tokens;
+    }
+
+    private boolean isChinese(char c) {
+        return c >= '\u4e00' && c <= '\u9fff';
     }
 
     private String shorten(String text, int maxLength) {
