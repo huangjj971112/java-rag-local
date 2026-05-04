@@ -62,31 +62,18 @@ public class StreamRagController {
                 // 4. 构造带引用编号的上下文
                 String context = buildContextWithRefs(docs, ragProperties.maxContextChars());
 
-                String prompt = """
-                        你是一个严谨的本地知识库问答助手。
-                        请结合【历史对话】和【资料】回答【问题】。
-                        如果资料中没有答案，请回答：资料中没有找到相关信息。
-                        不要编造内容。
-
-                        回答要求：
-                        1. 回答中必须使用引用编号，例如：[1]、[2]
-                        2. 引用编号必须来自资料编号
-                        3. 不要使用不存在的编号
-                        4. 如果用户的问题中出现“它”“这个”“上面说的”等指代，请结合历史对话理解
-
-                        【资料】
-                        %s
-
-                        【问题】
-                        %s
-                        """.formatted(context, question);
-
                 // 5. 构造 messages
                 List<Map<String, String>> messages = new ArrayList<>();
 
                 messages.add(Map.of(
                         "role", "system",
-                        "content", "你是一个严谨的本地知识库问答助手。请结合历史对话和检索资料回答问题。"
+                        "content", """
+                你是一个严谨的本地知识库问答助手。
+                请结合历史对话和检索资料回答问题。
+                如果资料中没有答案，请回答：资料中没有找到相关信息。
+                不要编造内容。
+                回答中必须使用资料引用编号，例如：[1]、[2]。
+                """
                 ));
 
                 for (ChatMessage msg : limitedHistory) {
@@ -98,7 +85,13 @@ public class StreamRagController {
 
                 messages.add(Map.of(
                         "role", "user",
-                        "content", prompt
+                        "content", """
+                【检索资料】
+                %s
+
+                【当前问题】
+                %s
+                """.formatted(context, question)
                 ));
 
                 // 6. 打印入参，确认多轮是否生效
