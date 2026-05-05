@@ -1,9 +1,8 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8" />
+    <meta charset="UTF-8">
     <title>本地 RAG 多轮对话</title>
-
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
@@ -21,8 +20,11 @@
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
         }
 
-        h2, h3 {
-            margin-top: 0;
+        .top-link {
+            display: inline-block;
+            margin-bottom: 16px;
+            color: #1677ff;
+            text-decoration: none;
         }
 
         textarea {
@@ -52,20 +54,18 @@
             cursor: not-allowed;
         }
 
-        .danger-btn {
-            background: #ff4d4f;
-        }
-
-        .section {
-            margin-top: 24px;
-            padding: 16px;
-            border: 1px solid #eee;
-            border-radius: 10px;
-            background: #fafafa;
+        .rewrite {
+            margin-top: 12px;
+            color: #666;
+            font-size: 14px;
+            background: #f6f8fa;
+            padding: 10px;
+            border-radius: 8px;
+            display: none;
         }
 
         .answer {
-            margin-top: 16px;
+            margin-top: 20px;
             padding: 16px;
             min-height: 140px;
             background: #fafafa;
@@ -93,21 +93,6 @@
             border-radius: 8px;
         }
 
-        .file-item {
-            margin-top: 10px;
-            padding: 12px;
-            background: #fff;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-        }
-
-        .file-hash {
-            font-size: 12px;
-            color: #666;
-            word-break: break-all;
-            margin-top: 6px;
-        }
-
         .ref-link {
             color: #1677ff;
             cursor: pointer;
@@ -119,47 +104,35 @@
             padding: 2px 4px;
             border-radius: 4px;
         }
-
-        .status {
-            margin-top: 8px;
-            color: #666;
-            font-size: 14px;
-        }
-
-        input[type="file"] {
-            margin-top: 8px;
-        }
     </style>
 </head>
 
 <body>
 
 <div class="container">
+    <a class="top-link" href="./file-manager.html">文件管理</a>
+
     <h2>本地 RAG 多轮对话</h2>
 
-    <div class="section">
-        <h3>知识库问答</h3>
+    <textarea id="question" placeholder="请输入问题，例如：毛泽东思想是什么？">毛泽东思想是什么</textarea>
 
-        <textarea id="question" placeholder="请输入问题，例如：毛泽东思想是什么？">毛泽东思想是什么</textarea>
+    <br>
+    <button id="askBtn" onclick="ask()">开始提问</button>
 
-        <br />
-        <button id="askBtn" onclick="ask()">开始提问</button>
+    <div id="rewriteQuestion" class="rewrite"></div>
 
-        <div id="answer" class="answer"></div>
+    <div id="answer" class="answer"></div>
 
-        <div id="sources" class="sources" style="display:none;">
-            <strong>引用来源：</strong>
-            <div id="sourceList"></div>
-        </div>
+    <div id="sources" class="sources" style="display:none;">
+        <strong>引用来源：</strong>
+        <div id="sourceList"></div>
     </div>
 </div>
 
 <script>
     let eventSource = null;
 
-    // 每个浏览器页面一个会话
     const sessionId = "user-" + Math.random().toString(36).substring(2);
-
 
     function ask() {
         const question = document.getElementById("question").value.trim();
@@ -167,6 +140,7 @@
         const sourcesEl = document.getElementById("sources");
         const sourceListEl = document.getElementById("sourceList");
         const askBtn = document.getElementById("askBtn");
+        const rewriteEl = document.getElementById("rewriteQuestion");
 
         if (!question) {
             alert("请输入问题");
@@ -182,6 +156,9 @@
         answerEl.innerHTML = "";
         sourceListEl.innerHTML = "";
         sourcesEl.style.display = "none";
+        rewriteEl.style.display = "none";
+        rewriteEl.innerText = "";
+
         askBtn.disabled = true;
         askBtn.textContent = "回答中...";
 
@@ -190,6 +167,11 @@
             + "&sessionId=" + encodeURIComponent(sessionId);
 
         eventSource = new EventSource(url);
+
+        eventSource.addEventListener("rewrite", function (event) {
+            rewriteEl.style.display = "block";
+            rewriteEl.innerText = "检索问题：" + event.data;
+        });
 
         eventSource.addEventListener("message", function (event) {
             let text = escapeHtml(event.data);
@@ -295,25 +277,6 @@
             .replaceAll(">", "&gt;")
             .replaceAll('"', "&quot;")
             .replaceAll("'", "&#039;");
-    }
-
-    function escapeJs(text) {
-        return String(text)
-            .replaceAll("\\", "\\\\")
-            .replaceAll("'", "\\'")
-            .replaceAll('"', '\\"');
-    }
-
-    function deleteFileByInput() {
-        const input = document.getElementById("deleteFileHashInput");
-        const fileHash = input.value.trim();
-
-        if (!fileHash) {
-            alert("请输入 fileHash");
-            return;
-        }
-
-        deleteFile(fileHash);
     }
 </script>
 

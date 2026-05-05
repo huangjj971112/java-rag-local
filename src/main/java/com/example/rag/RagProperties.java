@@ -6,8 +6,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record RagProperties(
         String docsPath,
         int topK,
+        int finalTopK,
         int maxContextChars,
         int maxHistoryMessages,
-        int maxHistoryTokens
+        int maxHistoryTokens,
+        boolean useLlmRerank
 ) {
 }

@@ -17,6 +17,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @RestController
@@ -47,14 +49,25 @@ public class StreamRagController {
                         ragProperties.maxHistoryMessages(),
                         ragProperties.maxHistoryTokens()
                 );
-                // 2. RAG 检索
-                List<Document> docs = vectorStore.similaritySearch(
+                // 1️⃣ 先改写问题
+                String rewrittenQuery = rewriteQuery(question);
+
+                //从向量数据库检索出相似度前k的段落
+                List<Document> recallDocs = vectorStore.similaritySearch(
                         SearchRequest.builder()
-                                .query(question)
+                                .query(rewrittenQuery)
                                 .topK(ragProperties.topK())
                                 .build()
                 );
 
+                List<Document> docs;
+                if (ragProperties.useLlmRerank()) {
+                    docs = rerankWithLLM(question, recallDocs, ragProperties.finalTopK());
+                } else {
+                    docs = rerankDocs(question, rewrittenQuery, recallDocs, ragProperties.finalTopK());
+                }
+
+                log.info("召回数量={}, 重排后数量={}", recallDocs.size(), docs.size());
                 // 3. 先返回 sources
                 List<SourceVO> sources = buildSources(docs);
 
@@ -71,12 +84,12 @@ public class StreamRagController {
                 messages.add(Map.of(
                         "role", "system",
                         "content", """
-                你是一个严谨的本地知识库问答助手。
-                请结合历史对话和检索资料回答问题。
-                如果资料中没有答案，请回答：资料中没有找到相关信息。
-                不要编造内容。
-                回答中必须使用资料引用编号，例如：[1]、[2]。
-                """
+                                你是一个严谨的本地知识库问答助手。
+                                请结合历史对话和检索资料回答问题。
+                                如果资料中没有答案，请回答：资料中没有找到相关信息。
+                                不要编造内容。
+                                回答中必须使用资料引用编号，例如：[1]、[2]。
+                                """
                 ));
 
                 for (ChatMessage msg : limitedHistory) {
@@ -89,12 +102,12 @@ public class StreamRagController {
                 messages.add(Map.of(
                         "role", "user",
                         "content", """
-                【检索资料】
-                %s
-
-                【当前问题】
-                %s
-                """.formatted(context, question)
+                                【检索资料】
+                                %s
+                                
+                                【当前问题】
+                                %s
+                                """.formatted(context, question)
                 ));
 
                 // 6. 打印入参，确认多轮是否生效
@@ -163,6 +176,172 @@ public class StreamRagController {
         });
 
         return emitter;
+    }
+
+    private List<Document> rerankWithLLM(String question,
+                                         List<Document> docs,
+                                         int finalTopK) {
+
+        if (docs == null || docs.isEmpty()) {
+            return List.of();
+        }
+
+        try {
+            // 1️⃣ 构造候选列表
+            StringBuilder candidates = new StringBuilder();
+
+            for (int i = 0; i < docs.size(); i++) {
+                String text = shorten(docs.get(i).getText(), 200);
+
+                candidates.append("[").append(i).append("] ")
+                        .append(text)
+                        .append("\n\n");
+            }
+
+            // 2️⃣ 构造 prompt
+            String prompt = """
+                    你是一个文档相关性排序助手。
+                    请根据问题，从候选文档中选出最相关的 %d 条。
+                    
+                    要求：
+                    1. 只返回编号，例如：[2,5,1]
+                    2. 按相关性从高到低排序
+                    3. 不要解释
+                    
+                    【问题】
+                    %s
+                    
+                    【候选文档】
+                    %s
+                    """.formatted(finalTopK, question, candidates);
+
+            List<Map<String, String>> messages = List.of(
+                    Map.of("role", "user", "content", prompt)
+            );
+
+            StringBuilder result = new StringBuilder();
+
+            zhipuChatClient.streamChat(messages, token -> {
+                result.append(token);
+            });
+
+            String output = result.toString().trim();
+
+            log.info("LLM Rerank 输出={}", output);
+
+            // 3️⃣ 解析结果
+            List<Integer> indices = parseIndices(output);
+
+            List<Document> reranked = new ArrayList<>();
+
+            for (Integer idx : indices) {
+                if (idx >= 0 && idx < docs.size()) {
+                    reranked.add(docs.get(idx));
+                }
+            }
+
+            if (!reranked.isEmpty()) {
+                return reranked;
+            }
+
+        } catch (Exception e) {
+            log.warn("LLM rerank 失败，降级使用本地 rerank", e);
+        }
+
+        // fallback
+        return rerankDocs(question, question, docs, finalTopK);
+    }
+
+    private List<Integer> parseIndices(String text) {
+        List<Integer> result = new ArrayList<>();
+
+        Matcher matcher = Pattern.compile("\\d+").matcher(text);
+
+        while (matcher.find()) {
+            result.add(Integer.parseInt(matcher.group()));
+        }
+
+        return result;
+    }
+
+    private List<Document> rerankDocs(String originalQuestion,
+                                      String rewrittenQuery,
+                                      List<Document> docs,
+                                      int finalTopK) {
+
+        if (docs == null || docs.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> keywords = extractKeywords(originalQuestion + " " + rewrittenQuery);
+
+        List<ScoredDocument> scoredDocs = docs.stream()
+                .map(doc -> new ScoredDocument(doc, calcScore(doc, keywords)))
+                .sorted((a, b) -> Double.compare(b.score(), a.score()))
+                .toList();
+
+        for (int i = 0; i < scoredDocs.size(); i++) {
+            Document doc = scoredDocs.get(i).document();
+            log.info("rerank[{}] score={}, fileName={}, text={}",
+                    i + 1,
+                    scoredDocs.get(i).score(),
+                    doc.getMetadata().get("fileName"),
+                    shorten(doc.getText(), 100));
+        }
+
+        return scoredDocs.stream()
+                .limit(finalTopK)
+                .map(ScoredDocument::document)
+                .toList();
+    }
+
+    private double calcScore(Document doc, List<String> keywords) {
+        String text = doc.getText();
+
+        if (text == null || text.isBlank()) {
+            return 0;
+        }
+
+        double score = 0;
+
+        for (String keyword : keywords) {
+            if (text.contains(keyword)) {
+                score += 10;
+            }
+        }
+
+        // 命中越靠前，加分越高
+        for (String keyword : keywords) {
+            int index = text.indexOf(keyword);
+            if (index >= 0) {
+                score += Math.max(0, 5 - index / 100.0);
+            }
+        }
+
+        // 文本过短略微降权
+        if (text.length() < 80) {
+            score -= 2;
+        }
+
+        return score;
+    }
+
+    private List<String> extractKeywords(String text) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+
+        String cleaned = text
+                .replaceAll("[，。！？、,.?！；;：:\\[\\]（）()\"“”‘’]", " ");
+
+        return Arrays.stream(cleaned.split("\\s+"))
+                .map(String::trim)
+                .filter(s -> s.length() >= 2)
+                .distinct()
+                .toList();
+    }
+
+    private record ScoredDocument(Document document, double score) {
     }
 
     @DeleteMapping("/memory")
@@ -304,5 +483,48 @@ public class StreamRagController {
         }
 
         return text.substring(0, maxLength) + "...";
+    }
+
+    private String rewriteQuery(String question) {
+
+        List<Map<String, String>> messages = List.of(
+                Map.of("role", "system", "content", """
+                        你是一个 RAG 检索问题改写助手。
+                        请将用户问题改写为更适合向量数据库检索的查询语句。
+                        
+                        要求：
+                        1. 保持用户原意，不要扩大或改变问题范围
+                        2. 优先使用教材、知识库、学术文档中常见的标准术语
+                        3. 如果是口语化表达，要改写成正式概念
+                        4. 只返回一个改写后的查询语句
+                        5. 不要解释，不要加引号
+                        
+                        示例：
+                        用户问题：毛泽东怎么打天下？
+                        改写：毛泽东思想中新民主主义革命道路、农村包围城市、武装夺取政权的相关内容是什么？
+                        
+                        用户问题：它有什么意义？
+                        改写：结合历史对话，说明前文主题的历史意义和理论意义是什么？
+                        """),
+                Map.of("role", "user", "content", question)
+        );
+
+        StringBuilder rewritten = new StringBuilder();
+
+        zhipuChatClient.streamChat(messages, token -> {
+            rewritten.append(token);
+        });
+
+        String result = rewritten.toString().trim();
+
+        log.info("QueryRewrite 原问题：{}", question);
+        log.info("QueryRewrite 改写后：{}", result);
+
+        // 防止模型乱写
+        if (result.isBlank() || result.length() > 200) {
+            return question;
+        }
+
+        return result;
     }
 }

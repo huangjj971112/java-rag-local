@@ -45,10 +45,12 @@ app:
 
   rag:
     docs-path: classpath:/docs/*.docx
-    top-k: 3
+    top-k: 10
+    final-top-k: 3
     max-context-chars: 1000
     max-history-messages: 6
     max-history-tokens: 3000
+    use-llm-rerank: true
 
 logging:
   level:
