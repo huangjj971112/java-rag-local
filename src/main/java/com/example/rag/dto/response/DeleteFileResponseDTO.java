@@ -1,4 +1,4 @@
-package com.example.rag.dto;
+package com.example.rag.dto.response;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;

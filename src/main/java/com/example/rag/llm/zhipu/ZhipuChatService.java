@@ -1,4 +1,5 @@
-package com.example.rag;
+package com.example.rag.llm.zhipu;
+
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;

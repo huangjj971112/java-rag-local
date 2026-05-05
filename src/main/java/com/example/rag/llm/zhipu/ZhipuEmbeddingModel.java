@@ -1,4 +1,5 @@
-package com.example.rag;
+package com.example.rag.llm.zhipu;
+
 
 import com.example.rag.utils.JsonUtils;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;

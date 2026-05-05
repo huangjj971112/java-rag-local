@@ -2,9 +2,10 @@ package com.example.rag.controller;
 
 
 import com.example.rag.RagProperties;
-import com.example.rag.ZhipuChatClient;
-import com.example.rag.ZhipuChatService;
-import com.example.rag.dto.Source;
+
+import com.example.rag.dto.response.Source;
+import com.example.rag.llm.zhipu.ZhipuChatClient;
+import com.example.rag.llm.zhipu.ZhipuChatService;
 import com.example.rag.model.Ask1Source;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;

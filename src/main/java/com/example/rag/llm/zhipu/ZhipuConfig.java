@@ -1,5 +1,6 @@
-package com.example.rag;
+package com.example.rag.llm.zhipu;
 
+import com.example.rag.RagProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 

@@ -1,4 +1,4 @@
-package com.example.rag;
+package com.example.rag.dto.response;
 
 import java.util.List;
 

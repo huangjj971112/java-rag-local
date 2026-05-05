@@ -1,5 +1,7 @@
-package com.example.rag;
-
+package com.example.rag.config;
+import com.example.rag.RagProperties;
+import com.example.rag.llm.zhipu.ZhipuEmbeddingModel;
+import com.example.rag.llm.zhipu.ZhipuProperties;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.vectorstore.SimpleVectorStore;
 import org.springframework.ai.vectorstore.VectorStore;

@@ -1,4 +1,5 @@
-package com.example.rag;
+package com.example.rag.llm.zhipu;
+
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

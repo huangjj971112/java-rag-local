@@ -1,8 +1,10 @@
-package com.example.rag;
+package com.example.rag.service;
 
-import com.example.rag.dto.DeleteFileResponseDTO;
-import com.example.rag.dto.FileInfoDTO;
-import com.example.rag.dto.UploadResponseDTO;
+import com.example.rag.RagProperties;
+import com.example.rag.dto.response.DeleteFileResponseDTO;
+import com.example.rag.dto.response.FileInfoDTO;
+import com.example.rag.dto.response.UploadResponseDTO;
+import com.example.rag.util.HashUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
@@ -16,8 +18,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.*;
 
 @Component
@@ -29,7 +29,7 @@ public class IngestionService {
     private final RagProperties ragProperties;
     private final JdbcTemplate jdbcTemplate;
 
-    public IngestionService(VectorStore vectorStore, RagProperties ragProperties,JdbcTemplate jdbcTemplate) {
+    public IngestionService(VectorStore vectorStore, RagProperties ragProperties, JdbcTemplate jdbcTemplate) {
         this.vectorStore = vectorStore;
         this.ragProperties = ragProperties;
         this.jdbcTemplate = jdbcTemplate;
@@ -92,7 +92,7 @@ public class IngestionService {
                 continue;
             }
 
-            String chunkHash = sha256(text);
+            String chunkHash = HashUtils.sha256(text);
 
             if (!seenHashes.add(chunkHash)) {
                 continue;
@@ -134,23 +134,6 @@ public class IngestionService {
         log.info("ingest done: 文档数={}, chunks={}", allDocs.size(), uniqueDocs.size());
     }
 
-    private String sha256(String text) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(text.getBytes(StandardCharsets.UTF_8));
-
-            StringBuilder hex = new StringBuilder();
-            for (byte b : hash) {
-                hex.append(String.format("%02x", b));
-            }
-
-            return hex.toString();
-
-        } catch (Exception e) {
-            throw new RuntimeException("生成 hash 失败", e);
-        }
-    }
-
     public UploadResponseDTO ingestUpload(MultipartFile file) throws Exception {
 
         if (file == null || file.isEmpty()) {
@@ -159,9 +142,9 @@ public class IngestionService {
 
         byte[] bytes = file.getBytes();
         String fileName = Objects.requireNonNullElse(file.getOriginalFilename(), "未知文件");
-        String fileHash = sha256(bytes);
+        String fileHash = HashUtils.sha256(bytes);
 
-// ✅ 上传前去重
+        // 上传前去重
         if (existsByFileHash(fileHash)) {
             log.warn("文件已存在，跳过入库 fileName={}, fileHash={}", fileName, fileHash);
 
@@ -173,7 +156,6 @@ public class IngestionService {
                     .message("文件已存在，请勿重复上传")
                     .build();
         }
-
 
         validateFileType(fileName);
 
@@ -193,7 +175,7 @@ public class IngestionService {
 
         List<Document> docs = readResource(resource, fileName);
 
-        List<Document> uniqueDocs = splitAndDeduplicate(docs,fileName,fileHash);
+        List<Document> uniqueDocs = splitAndDeduplicate(docs, fileName, fileHash);
 
         for (int i = 0; i < uniqueDocs.size(); i++) {
             Document doc = uniqueDocs.get(i);
@@ -228,8 +210,6 @@ public class IngestionService {
                 .message("上传并入库成功")
                 .build();
     }
-
-
 
     private List<Document> readResource(Resource resource, String fileName) {
         try {
@@ -273,7 +253,7 @@ public class IngestionService {
                 continue;
             }
 
-            String chunkHash = sha256(text);
+            String chunkHash = HashUtils.sha256(text);
 
             if (!seenHashes.add(chunkHash)) {
                 continue;
@@ -301,21 +281,6 @@ public class IngestionService {
                 || lower.endsWith(".pdf")
                 || lower.endsWith(".txt"))) {
             throw new IllegalArgumentException("只支持 docx、pdf、txt 文件");
-        }
-    }
-
-    private String sha256(byte[] bytes) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(bytes);
-
-            StringBuilder hex = new StringBuilder();
-            for (byte b : hash) {
-                hex.append(String.format("%02x", b));
-            }
-            return hex.toString();
-        } catch (Exception e) {
-            throw new RuntimeException("生成文件hash失败", e);
         }
     }
 
@@ -358,7 +323,6 @@ public class IngestionService {
                 .build();
     }
 
-
     public List<FileInfoDTO> listFiles() {
         String sql = """
             SELECT
@@ -371,7 +335,7 @@ public class IngestionService {
             ORDER BY metadata ->> 'fileName'
             """;
 
-         List<FileInfoDTO> list =jdbcTemplate.query(sql, (rs, rowNum) ->
+        List<FileInfoDTO> list = jdbcTemplate.query(sql, (rs, rowNum) ->
                 FileInfoDTO.builder()
                         .fileName(rs.getString("file_name"))
                         .fileHash(rs.getString("file_hash"))
@@ -379,7 +343,7 @@ public class IngestionService {
                         .build()
         );
 
-        log.info("查询数据列表长度{}",list.size());
+        log.info("查询数据列表长度{}", list.size());
 
         return list;
     }

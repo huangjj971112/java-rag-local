@@ -1,9 +1,9 @@
 package com.example.rag.controller;
 
-import com.example.rag.IngestionService;
-import com.example.rag.dto.DeleteFileResponseDTO;
-import com.example.rag.dto.FileInfoDTO;
-import com.example.rag.dto.UploadResponseDTO;
+import com.example.rag.dto.response.DeleteFileResponseDTO;
+import com.example.rag.dto.response.FileInfoDTO;
+import com.example.rag.dto.response.UploadResponseDTO;
+import com.example.rag.service.IngestionService;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
