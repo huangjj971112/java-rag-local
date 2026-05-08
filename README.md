@@ -1,374 +1,384 @@
-# Java RAG 本地知识库问答系统
+# Java RAG Local
 
-基于 Spring Boot 3 + 智谱 AI + pgvector 的企业级 RAG（检索增强生成）系统，支持文档智能问答、流式输出、多轮对话等功能。
+基于 Spring Boot + Spring AI + pgvector + Redis 构建的本地 RAG（Retrieval-Augmented Generation）知识库问答系统。
 
-## ✨ 核心特性
+支持：
 
-- 🚀 **开箱即用**：基于 Spring Boot 3.3，快速启动本地知识库问答
-- 📄 **多格式支持**：支持 PDF / Word / TXT / Markdown 文档解析
-- 🔍 **智能检索**：向量检索 + LLM 重排序 + 问题改写，提升检索精度
-- 💬 **多轮对话**：基于 Redis 的会话记忆，支持上下文关联问答
-- 🌊 **流式输出**：SSE 实时流式响应，提升用户体验
-- 🗂️ **文档管理**：支持文档上传、删除、查询，基于文件哈希去重
-- 🔌 **OpenAPI 文档**：集成 SpringDoc，自动生成 API 文档
-- 💰 **低成本部署**：使用智谱 API，无需本地部署大模型
+* 文档上传（docx/pdf/txt）
+* 向量检索（pgvector）
+* 本地 Embedding
+* 流式回答（SSE）
+* 多轮对话（Redis Memory）
+* Query Rewrite
+* Multi-Query Retrieval
+* Rerank（无模型 / 模型版）
+* 引用来源（sources）
+* 命中句高亮
+* 文件分页管理
+* 文件级去重（fileHash）
+* chunk 去重（chunkHash）
 
-## 🛠️ 技术栈
+---
 
-| 技术 | 版本 | 说明 |
-|------|------|------|
-| Spring Boot | 3.3.4 | 基础框架 |
-| Spring AI | 1.0.6 | AI 能力集成 |
-| pgvector | - | PostgreSQL 向量存储 |
-| 智谱 SDK | 0.3.3 | 智谱 AI API 集成 |
-| Redis | - | 会话记忆存储 |
-| Apache Tika | - | 文档解析 |
+# 项目架构
 
-## 📋 前置条件
-
-1. **Java 17+**
-2. **Maven 3.6+**
-3. **PostgreSQL 12+**（需安装 pgvector 扩展）
-4. **Redis 6+**
-5. **智谱 API Key**（[获取地址](https://open.bigmodel.cn/)）
-
-## 🚀 快速开始
-
-### 1. 数据库准备
-
-```sql
--- 创建数据库
-CREATE DATABASE rag_db;
-
--- 连接到数据库后，创建 pgvector 扩展
-CREATE EXTENSION IF NOT EXISTS vector;
+```text
+用户问题
+    ↓
+Query Rewrite
+    ↓
+Multi Query
+    ↓
+向量召回（pgvector）
+    ↓
+去重（chunkHash）
+    ↓
+Rerank（规则 / LLM）
+    ↓
+构造 Context
+    ↓
+大模型生成回答（SSE流式输出）
 ```
 
-### 2. 配置环境变量
+---
+
+# 技术栈
+
+| 技术                    | 说明          |
+| --------------------- | ----------- |
+| Spring Boot 3         | Web 框架      |
+| Spring AI             | AI 集成       |
+| PostgreSQL + pgvector | 向量数据库       |
+| Redis                 | 多轮对话 Memory |
+| SSE                   | 流式输出        |
+| Docker                | 本地部署        |
+| Tika                  | 文档解析        |
+| Ollama / 本地 Embedding | 向量生成        |
+| 智谱 GLM                | 大模型回答       |
+
+---
+
+# 核心功能
+
+## 1. 文档上传
+
+支持上传：
+
+* docx
+* pdf
+* txt
+
+接口：
+
+```http
+POST /ingest/upload
+```
+
+功能：
+
+* 文档解析
+* chunk 切分
+* chunk 去重
+* 向量化
+* 写入 pgvector
+* fileHash 去重
+
+---
+
+## 2. 文件管理
+
+### 分页查询文件
+
+```http
+GET /ingest/files/page?pageNum=1&pageSize=10
+```
+
+### 删除文件
+
+```http
+DELETE /ingest/file?fileHash=xxx
+```
+
+特点：
+
+* 幂等删除
+* fileHash 精准删除
+* 分页展示
+* 前端自动刷新
+
+---
+
+## 3. RAG 问答
+
+接口：
+
+```http
+GET /rag/stream/ask
+```
+
+参数：
+
+| 参数        | 说明   |
+| --------- | ---- |
+| question  | 用户问题 |
+| sessionId | 会话ID |
+
+特点：
+
+* SSE 流式输出
+* 多轮对话
+* sources 引用来源
+* 命中句展示
+* Query Rewrite
+* Multi Query
+* Rerank
+
+---
+
+# Query Rewrite
+
+在向量检索前，对用户问题进行语义改写。
+
+例如：
+
+```text
+原问题：毛泽东怎么打天下？
+
+改写后：
+毛泽东思想中新民主主义革命道路、农村包围城市、武装夺取政权的相关内容是什么？
+```
+
+作用：
+
+* 提升召回命中率
+* 解决口语化问题
+* 提升知识库匹配效果
+
+---
+
+# Multi Query
+
+针对同一个问题生成多个检索表达。
+
+例如：
+
+```text
+问题：毛泽东怎么打天下？
+
+生成：
+1. 新民主主义革命道路
+2. 农村包围城市战略
+3. 武装夺取政权
+```
+
+作用：
+
+* 提高召回覆盖率
+* 从不同语义角度检索
+* 提升复杂问题效果
+
+---
+
+# Rerank
+
+## 无模型 Rerank
+
+基于：
+
+* 关键词命中
+* 位置权重
+* 文本长度
+
+进行重新排序。
+
+## 模型版 Rerank
+
+通过大模型判断：
+
+```text
+哪个 chunk 与问题最相关
+```
+
+并支持：
+
+* fallback
+* 配置开关
+* 自动降级
+
+---
+
+# 多轮对话（Redis Memory）
+
+使用 Redis 存储历史对话。
+
+特点：
+
+* session 级隔离
+* token 裁剪
+* 最大历史限制
+* 自动 trim
+
+Redis Key：
+
+```text
+rag:chat:memory:{sessionId}
+```
+
+---
+
+# Sources 引用来源
+
+回答中支持：
+
+```text
+[1][2][3]
+```
+
+并展示：
+
+* 文件名
+* 命中句
+* 高亮关键词
+* 引用跳转
+
+---
+
+# Chunk 策略
+
+当前采用：
+
+```text
+小 chunk 检索
+```
+
+特点：
+
+* 检索精准
+* 适合 rerank
+* 适合 multi-query
+
+后续可升级：
+
+```text
+Parent Document Retrieval
+```
+
+实现：
+
+```text
+小 chunk 检索
+→ 大 parent chunk 回答
+```
+
+---
+
+# 本地运行
+
+## 1. 启动 PostgreSQL + pgvector
 
 ```bash
-# macOS / Linux
-export ZHIPU_API_KEY=你的智谱API密钥
-
-# Windows
-set ZHIPU_API_KEY=你的智谱API密钥
+docker run -d \
+  --name rag-postgres \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=rag_db \
+  -p 5432:5432 \
+  ankane/pgvector
 ```
 
-### 3. 修改配置文件
+---
 
-编辑 `src/main/resources/application.yml`：
+## 2. 启动 Redis
+
+```bash
+docker run -d \
+  --name rag-redis \
+  -p 6379:6379 \
+  redis:7
+```
+
+---
+
+## 3. 配置 application.yml
 
 ```yaml
 spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/rag_db
     username: postgres
-    password: 你的密码
+    password: postgres
 
   data:
     redis:
       host: localhost
       port: 6379
-      database: 0
 ```
 
-### 4. 启动项目
+---
+
+## 4. 启动项目
 
 ```bash
 mvn spring-boot:run
 ```
 
-启动成功后访问：
-- 应用首页：http://localhost:8080
-- API 文档：http://localhost:8080/swagger-ui.html
+---
 
-## 📚 核心功能
+# 前端页面
 
-### 1. 文档入库
+## 问答页面
 
-#### 方式一：本地文档入库
-
-将文档放入 `src/main/resources/docs/` 目录，调用接口入库：
-
-```bash
-curl -X GET "http://localhost:8080/ingest/insert"
+```text
+stream-chat.html
 ```
 
-#### 方式二：上传文档入库
+功能：
 
-```bash
-curl -X POST "http://localhost:8080/ingest/upload" \
-  -F "file=@/path/to/your/document.pdf"
+* SSE 流式回答
+* 多轮对话
+* rewrite 展示
+* sources 引用
+
+## 文件管理页面
+
+```text
+file-manager.html
 ```
 
-#### 文档管理接口
+功能：
 
-```bash
-# 查看已入库文件列表
-curl "http://localhost:8080/ingest/files"
+* 上传文件
+* 删除文件
+* 文件分页
+* fileHash 管理
 
-# 删除文件
-curl -X POST "http://localhost:8080/ingest/deleteFile?fileHash=文件哈希值"
-```
+---
 
-### 2. RAG 问答
+# 项目亮点
 
-#### 基础问答
+* 基于 Spring AI 构建完整 RAG Pipeline
+* 实现 Query Rewrite + Multi Query + Rerank
+* 支持 Redis 多轮 Memory
+* 支持 SSE 流式回答
+* 支持文件级与 chunk 级去重
+* 支持可解释 Sources 展示
+* 支持模型版与规则版双 Rerank
+* 支持本地 Embedding
 
-```bash
-curl "http://localhost:8080/rag/askFromPgsql?question=请总结文档核心观点"
-```
+---
 
-响应示例：
-```json
-{
-  "answer": "根据文档内容，核心观点包括...",
-  "sources": [
-    {
-      "fileName": "document.pdf",
-      "source": "document.pdf",
-      "chunkHash": "abc123",
-      "score": 0.89,
-      "content": "相关文档片段..."
-    }
-  ]
-}
-```
+# 后续规划
 
-#### 流式问答（推荐）
+* Parent Document Retrieval
+* Hybrid Search（BM25 + Vector）
+* Agent Workflow
+* 权限隔离
+* Chunk Parent Mapping
+* 知识库标签系统
+* 多知识库管理
 
-支持 SSE 实时流式输出和多轮对话：
+---
 
-```bash
-curl "http://localhost:8080/rag/stream/ask?question=什么是毛泽东思想&sessionId=session1"
-```
+# License
 
-前端示例：
-```javascript
-const eventSource = new EventSource(
-  "http://localhost:8080/rag/stream/ask?question=" + encodeURIComponent("你的问题") + 
-  "&sessionId=session1"
-);
-
-// 接收来源文档
-eventSource.addEventListener("sources", function(event) {
-  console.log("来源文档:", JSON.parse(event.data));
-});
-
-// 接收流式回答
-eventSource.addEventListener("message", function(event) {
-  console.log("回答片段:", event.data);
-});
-
-// 完成
-eventSource.addEventListener("done", function() {
-  eventSource.close();
-});
-```
-
-#### 清空会话记忆
-
-```bash
-curl -X DELETE "http://localhost:8080/rag/stream/memory?sessionId=session1"
-```
-
-## 🔧 高级配置
-
-### 核心配置项
-
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| `app.zhipu.api-key` | 智谱 API Key | 环境变量 `ZHIPU_API_KEY` |
-| `app.zhipu.chat-model` | 聊天模型 | `glm-4-flash` |
-| `app.zhipu.embedding-model` | 向量模型 | `embedding-3` |
-| `app.rag.top-k` | 召回文档数量 | 10 |
-| `app.rag.final-top-k` | 最终返回文档数量 | 3 |
-| `app.rag.max-context-chars` | 最大上下文字符数 | 1000 |
-| `app.rag.max-history-messages` | 最大历史消息数 | 6 |
-| `app.rag.max-history-tokens` | 最大历史 Token 数 | 3000 |
-| `app.rag.use-llm-rerank` | 是否使用 LLM 重排序 | true |
-
-### 完整配置示例
-
-```yaml
-app:
-  zhipu:
-    api-key: ${ZHIPU_API_KEY:}
-    chat-model: glm-4-flash
-    embedding-model: embedding-3
-    embedding-url: https://open.bigmodel.cn/api/paas/v4/embeddings
-    chat-url: https://open.bigmodel.cn/api/paas/v4/chat/completions
-
-  rag:
-    docs-path: classpath:/docs/*.docx
-    top-k: 10
-    final-top-k: 3
-    max-context-chars: 1000
-    max-history-messages: 6
-    max-history-tokens: 3000
-    use-llm-rerank: true
-```
-
-## 📖 API 接口文档
-
-### RAG 问答接口
-
-| 接口 | 方法 | 说明 |
-|------|------|------|
-| `/rag/ask` | GET | 基础问答（SimpleVectorStore） |
-| `/rag/askFromLocalDocx` | GET | 本地文档问答 |
-| `/rag/askFromPgsql` | GET | pgvector 问答（推荐） |
-| `/rag/stream/ask` | GET | 流式问答 + 多轮对话 |
-| `/rag/stream/memory` | DELETE | 清空会话记忆 |
-
-### 文档管理接口
-
-| 接口 | 方法 | 说明 |
-|------|------|------|
-| `/ingest/insert` | GET | 本地文档入库 |
-| `/ingest/upload` | POST | 上传文档入库 |
-| `/ingest/files` | GET | 查询已入库文件 |
-| `/ingest/deleteFile` | POST | 删除文件 |
-
-## 🏗️ 项目结构
-
-```
-src/main/java/com/example/rag/
-├── controller/               # 控制器层
-│   ├── RagController.java        # RAG 问答接口
-│   ├── StreamRagController.java  # 流式问答接口
-│   └── IngestController.java     # 文档入库接口
-├── chat/                     # 聊天相关
-│   ├── ChatMemory.java           # 会话记忆管理
-│   └── ChatMessage.java          # 消息模型
-├── dto/                      # 数据传输对象
-├── model/                    # 模型类
-├── config/                   # 配置类
-├── utils/                    # 工具类
-├── AiConfig.java             # AI 配置
-├── ZhipuConfig.java          # 智谱配置
-├── ZhipuChatClient.java      # 智谱聊天客户端
-├── ZhipuChatService.java     # 智谱聊天服务
-├── ZhipuEmbeddingModel.java  # 智谱向量模型
-├── IngestionService.java     # 文档入库服务
-├── RagProperties.java        # RAG 配置属性
-└── Application.java          # 应用入口
-```
-
-## 🔍 技术亮点
-
-### 1. 智能检索策略
-
-- **问题改写**：使用 LLM 将用户问题改写为更适合向量检索的查询语句
-- **多路召回**：向量检索召回 Top-K 相关文档
-- **智能重排序**：
-  - LLM 重排序：利用大模型判断文档相关性
-  - 本地重排序：基于关键词匹配和位置加权
-
-### 2. 多轮对话支持
-
-- 基于 Redis 存储会话历史
-- 支持 Token 和消息数量双重限制
-- 自动管理上下文窗口，避免超出模型限制
-
-### 3. 文档处理
-
-- 支持多种文档格式（PDF、Word、TXT、Markdown）
-- 基于文件哈希去重
-- 自动提取文档元数据（文件名、章节等）
-
-## 📝 使用示例
-
-### 场景一：知识库问答
-
-```bash
-# 1. 上传文档
-curl -X POST "http://localhost:8080/ingest/upload" -F "file=@教材.docx"
-
-# 2. 问答
-curl "http://localhost:8080/rag/askFromPgsql?question=什么是马克思主义?"
-```
-
-### 场景二：多轮对话
-
-```bash
-# 第一轮
-curl "http://localhost:8080/rag/stream/ask?question=毛泽东思想的主要内容是什么&sessionId=chat001"
-
-# 第二轮（带上下文）
-curl "http://localhost:8080/rag/stream/ask?question=它有什么历史意义&sessionId=chat001"
-
-# 清空会话
-curl -X DELETE "http://localhost:8080/rag/stream/memory?sessionId=chat001"
-```
-
-## ⚠️ 注意事项
-
-1. **数据库扩展**：确保 PostgreSQL 已安装 pgvector 扩展
-2. **API 限额**：智谱 API 有调用频率限制，请合理控制并发
-3. **文档大小**：默认支持最大 100MB 文件上传
-4. **会话管理**：建议定期清理长期未使用的会话记忆
-
-## 🤝 贡献指南
-
-欢迎提交 Issue 和 Pull Request！
-
-## 📄 许可证
-
-本项目采用 MIT 许可证。
-
-## 🙏 致谢
-
-- [Spring AI](https://spring.io/projects/spring-ai)
-- [智谱 AI](https://open.bigmodel.cn/)
-- [pgvector](https://github.com/pgvector/pgvector)# Java RAG (Zhipu API)
-
-本项目是一个低成本、本地部署的 Java RAG 示例：
-- 模型服务：智谱 API（官方 `zai-sdk`）
-- 文档类型：PDF / Word / TXT / Markdown
-- 检索：Spring AI `SimpleVectorStore`
-
-## 1. 环境准备
-
-1) 安装 Java 17+  
-2) 安装 Maven  
-3) 准备智谱 API Key（`ZHIPU_API_KEY`）
-
-macOS/Linux:
-```bash
-export ZHIPU_API_KEY=你的key
-```
-
-## 2. 放入文档
-
-把 PDF/Word 文件放到：
-
-`src/main/resources/docs`
-
-## 3. 启动项目
-
-```bash
-mvn spring-boot:run
-```
-
-启动时会自动扫描 `docs` 目录并完成向量化入库。
-
-## 4. 调用问答接口
-
-```bash
-curl "http://localhost:8080/api/chat?question=请总结文档的核心观点"
-```
-
-返回示例：
-- `answer`: 最终回答
-- `sources`: 命中的片段来源与内容
-
-## 5. 关键配置（智谱）
-
-配置文件：`src/main/resources/application.properties`
-
-- `app.zhipu.api-key`：智谱 API Key（默认读取环境变量 `ZHIPU_API_KEY`）
-- `app.zhipu.chat-model`：聊天模型（默认 `glm-4-flash`）
-- `app.zhipu.embedding-model`：向量模型（默认 `embedding-3`）
-- `app.rag.docs-path`：文档目录
-- `app.rag.top-k`：检索条数
+MIT
