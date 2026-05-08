@@ -177,30 +177,35 @@ public class IngestionService {
 
         List<Document> uniqueDocs = splitAndDeduplicate(docs, fileName, fileHash);
 
-        for (int i = 0; i < uniqueDocs.size(); i++) {
-            Document doc = uniqueDocs.get(i);
+        int batchSize = 32;
+        int successCount = 0;
+
+        for (int i = 0; i < uniqueDocs.size(); i += batchSize) {
+            List<Document> batch = uniqueDocs.subList(i, Math.min(i + batchSize, uniqueDocs.size()));
 
             try {
-                vectorStore.add(List.of(doc));
+                vectorStore.add(batch);
+                successCount += batch.size();
 
-                log.info("上传chunk入库成功: {}/{} fileName={} hash={}",
-                        i + 1,
-                        uniqueDocs.size(),
-                        doc.getMetadata().get("fileName"),
-                        doc.getMetadata().get("chunkHash"));
-
-                Thread.sleep(300);
+                log.info("批量入库完成: {}/{}",
+                        Math.min(i + batchSize, uniqueDocs.size()),
+                        uniqueDocs.size());
 
             } catch (Exception e) {
-                log.warn("上传chunk入库失败，已跳过: {}/{}, fileName={}, 原因: {}",
-                        i + 1,
+                log.error("批量入库失败: {}/{}，原因: {}",
+                        i,
                         uniqueDocs.size(),
-                        doc.getMetadata().get("fileName"),
-                        e.getMessage());
+                        e.getMessage(),
+                        e);
             }
         }
 
-        log.info("上传文档入库完成: fileName={}, chunks={}", fileName, uniqueDocs.size());
+        if (successCount == 0) {
+            throw new RuntimeException("文档入库失败：所有 chunk 都写入失败");
+        }
+
+        log.info("上传文档入库完成: fileName={}, successChunks={}, totalChunks={}",
+                fileName, successCount, uniqueDocs.size());
 
         return UploadResponseDTO.builder()
                 .success(true)

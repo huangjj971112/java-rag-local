@@ -37,8 +37,7 @@ public class StreamRagController {
     public SseEmitter stream(@RequestParam("question") String question,
                              @RequestParam(value = "sessionId", defaultValue = "default") String sessionId) {
 
-        SseEmitter emitter = new SseEmitter(60_000L);
-
+        SseEmitter emitter = new SseEmitter(10 * 60 * 1000L);
         executorService.submit(() -> {
             try {
                 // 1. 查询历史

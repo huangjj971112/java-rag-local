@@ -18,6 +18,16 @@ spring:
       max-file-size: 100MB
       max-request-size: 100MB
 
+  ai:
+    ollama:
+      base-url: http://localhost:11434
+
+    vectorstore:
+      pgvector:
+        dimensions: 1024
+        index-type: NONE
+        initialize-schema: true
+
 server:
   servlet:
     encoding:
@@ -27,14 +37,6 @@ server:
   tomcat:
     max-http-form-post-size: 200MB
     max-swallow-size: 200MB
-
-  ai:
-    vectorstore:
-      pgvector:
-        dimensions: 1024
-
-    ollama:
-      base-url: http://localhost:11434
 
 app:
   zhipu:
@@ -54,5 +56,3 @@ app:
 logging:
   level:
     org.apache.pdfbox.pdmodel.font.FileSystemFontProvider: ERROR
-
-
