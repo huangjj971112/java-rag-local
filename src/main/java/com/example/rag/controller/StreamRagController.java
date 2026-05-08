@@ -1,7 +1,7 @@
 package com.example.rag.controller;
 
 import com.example.rag.RagProperties;
-import com.example.rag.chat.ChatMemory;
+import com.example.rag.chat.LocalChatMemory;
 import com.example.rag.chat.ChatMessage;
 import com.example.rag.dto.response.SourceVO;
 import com.example.rag.llm.zhipu.ZhipuChatClient;
@@ -29,7 +29,7 @@ public class StreamRagController {
     private final VectorStore vectorStore;
     private final RagProperties ragProperties;
     private final ZhipuChatClient zhipuChatClient;
-    private final ChatMemory chatMemory;
+    private final LocalChatMemory localChatMemory;
 
     private final ExecutorService executorService = Executors.newFixedThreadPool(4);
 
@@ -42,7 +42,7 @@ public class StreamRagController {
         executorService.submit(() -> {
             try {
                 // 1. 查询历史
-                List<ChatMessage> history = chatMemory.get(sessionId);
+                List<ChatMessage> history = localChatMemory.get(sessionId);
 
                 List<ChatMessage> limitedHistory = limitHistoryByTokens(
                         history,
@@ -52,13 +52,31 @@ public class StreamRagController {
                 // 1️⃣ 先改写问题
                 String rewrittenQuery = rewriteQuery(question);
 
-                //从向量数据库检索出相似度前k的段落
-                List<Document> recallDocs = vectorStore.similaritySearch(
-                        SearchRequest.builder()
-                                .query(rewrittenQuery)
-                                .topK(ragProperties.topK())
-                                .build()
-                );
+                // 1️⃣ Multi Query
+                List<String> queries = generateMultiQueries(rewrittenQuery);
+
+                log.info("MultiQuery queries={}", queries);
+
+               // 2️⃣ 多路召回
+                List<Document> recallDocs = new ArrayList<>();
+
+                for (String q : queries) {
+
+                    List<Document> docs = vectorStore.similaritySearch(
+                            SearchRequest.builder()
+                                    .query(q)
+                                    .topK(ragProperties.topK())
+                                    .build()
+                    );
+
+                    recallDocs.addAll(docs);
+                }
+                log.info("MultiQuery 去重前 recallDocs={}", recallDocs.size());
+
+                //去重
+                recallDocs = deduplicateDocs(recallDocs);
+
+                log.info("MultiQuery 去重后 recallDocs={}", recallDocs.size());
 
                 List<Document> docs;
                 if (ragProperties.useLlmRerank()) {
@@ -129,7 +147,7 @@ public class StreamRagController {
                 }
 
                 // 7. 注意：先保存当前用户问题
-                chatMemory.add(sessionId, new ChatMessage("user", question));
+                localChatMemory.add(sessionId, new ChatMessage("user", question));
 
                 // 8. 流式调用，并收集完整回答
                 StringBuilder answerBuilder = new StringBuilder();
@@ -149,10 +167,10 @@ public class StreamRagController {
                 // 9. 保存 assistant 回答
                 String answer = answerBuilder.toString();
                 if (!answer.isBlank()) {
-                    chatMemory.add(sessionId, new ChatMessage("assistant", answer));
+                    localChatMemory.add(sessionId, new ChatMessage("assistant", answer));
                 }
 
-                log.info("本轮回答已写入 memory，当前会话消息数量={}", chatMemory.get(sessionId).size());
+                log.info("本轮回答已写入 memory，当前会话消息数量={}", localChatMemory.get(sessionId).size());
 
                 // 10. done
                 emitter.send(SseEmitter.event()
@@ -346,7 +364,7 @@ public class StreamRagController {
 
     @DeleteMapping("/memory")
     public String clearMemory(@RequestParam(value = "sessionId", defaultValue = "default") String sessionId) {
-        chatMemory.clear(sessionId);
+        localChatMemory.clear(sessionId);
         return "已清空会话：" + sessionId;
     }
 
@@ -526,5 +544,69 @@ public class StreamRagController {
         }
 
         return result;
+    }
+
+    private List<String> generateMultiQueries(String question) {
+
+        try {
+
+            List<Map<String, String>> messages = List.of(
+                    Map.of("role", "system", "content", """
+                            你是一个 RAG 检索优化助手。
+                            请针对用户问题，生成 3 个适合知识库检索的查询表达。
+                            
+                            要求：
+                            1. 保持原意
+                            2. 使用不同表达方式
+                            3. 尽量覆盖不同角度
+                            4. 每行一个
+                            5. 不要解释
+                            """),
+                    Map.of("role", "user", "content", question)
+            );
+
+            StringBuilder result = new StringBuilder();
+
+            zhipuChatClient.streamChat(messages, token -> {
+                result.append(token);
+            });
+
+            String output = result.toString();
+
+            log.info("MultiQuery 输出:\n{}", output);
+
+            List<String> queries = Arrays.stream(output.split("\n"))
+                    .map(String::trim)
+                    .filter(s -> !s.isBlank())
+                    .distinct()
+                    .limit(3)
+                    .toList();
+
+            if (!queries.isEmpty()) {
+                return queries;
+            }
+
+        } catch (Exception e) {
+            log.warn("MultiQuery 生成失败", e);
+        }
+
+        return List.of(question);
+    }
+
+
+    private List<Document> deduplicateDocs(List<Document> docs) {
+
+        Map<String, Document> unique = new LinkedHashMap<>();
+
+        for (Document doc : docs) {
+
+            String chunkHash = String.valueOf(
+                    doc.getMetadata().get("chunkHash")
+            );
+
+            unique.putIfAbsent(chunkHash, doc);
+        }
+
+        return new ArrayList<>(unique.values());
     }
 }

@@ -31,16 +31,15 @@ server:
   ai:
     vectorstore:
       pgvector:
-        initialize-schema: true
-        dimensions: 2048
-        index-type: NONE
+        dimensions: 1024
+
+    ollama:
+      base-url: http://localhost:11434
 
 app:
   zhipu:
     api-key: ${ZHIPU_API_KEY:}
-    chat-model: glm-4-flash
-    embedding-model: embedding-3
-    embedding-url: https://open.bigmodel.cn/api/paas/v4/embeddings
+    chat-model: glm-4.6v
     chat-url: https://open.bigmodel.cn/api/paas/v4/chat/completions
 
   rag:

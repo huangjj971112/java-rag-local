@@ -12,7 +12,7 @@ import java.util.List;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class ChatMemory {
+public class LocalChatMemory {
 
     private static final String KEY_PREFIX = "rag:chat:memory:";
     private static final int MAX_MESSAGES = 20;
