@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.example.rag.mapper.VectorDocumentMapper">
+
+    <select id="countByFileHash" resultType="int">
+        SELECT COUNT(*)
+        FROM vector_store
+        WHERE metadata ->> 'fileHash' = #{fileHash}
+    </select>
+
+    <delete id="deleteByFileHash">
+        DELETE FROM vector_store
+        WHERE metadata ->> 'fileHash' = #{fileHash}
+    </delete>
+
+    <select id="listFiles" resultType="com.example.rag.dto.response.FileInfoDTO">
+        SELECT
+        metadata ->> 'fileName' AS "fileName",
+        metadata ->> 'fileHash' AS "fileHash",
+        COUNT(*) AS chunks
+        FROM vector_store
+        WHERE metadata ->> 'fileHash' IS NOT NULL
+        GROUP BY metadata ->> 'fileName', metadata ->> 'fileHash'
+        ORDER BY metadata ->> 'fileName'
+    </select>
+
+    <select id="countFiles" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+        SELECT metadata ->> 'fileHash'
+        FROM vector_store
+        WHERE metadata ->> 'fileHash' IS NOT NULL
+        GROUP BY metadata ->> 'fileName', metadata ->> 'fileHash'
+        ) t
+    </select>
+
+    <select id="pageFiles" resultType="com.example.rag.dto.response.FileInfoDTO">
+        SELECT
+        metadata ->> 'fileName' AS "fileName",
+        metadata ->> 'fileHash' AS "fileHash",
+        COUNT(*) AS chunks
+        FROM vector_store
+        WHERE metadata ->> 'fileHash' IS NOT NULL
+        GROUP BY metadata ->> 'fileName', metadata ->> 'fileHash'
+        ORDER BY metadata ->> 'fileName'
+        LIMIT #{pageSize} OFFSET #{offset}
+    </select>
+
+</mapper>
