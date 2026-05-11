@@ -64,4 +64,63 @@ public class ZhipuChatService {
 
         return chat(prompt);
     }
+
+
+    public void streamChat(List<Map<String, String>> messages,
+                           java.util.function.Consumer<String> consumer) {
+
+        Map<String, Object> body = Map.of(
+                "model", properties.chatModel(),
+                "messages", messages,
+                "stream", true,
+                "temperature", 0.2
+        );
+
+        restClient.post()
+                .uri(properties.chatUrl())
+                .header(HttpHeaders.AUTHORIZATION,
+                        "Bearer " + properties.normalizedApiKey())
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .body(body)
+                .retrieve()
+                .body(String.class)
+                .lines()
+                .forEach(line -> {
+
+                    try {
+
+                        if (line == null || line.isBlank()) {
+                            return;
+                        }
+
+                        if (!line.startsWith("data:")) {
+                            return;
+                        }
+
+                        String json = line.substring(5).trim();
+
+                        if ("[DONE]".equals(json)) {
+                            return;
+                        }
+
+                        com.fasterxml.jackson.databind.JsonNode node =
+                                new com.fasterxml.jackson.databind.ObjectMapper()
+                                        .readTree(json);
+
+                        String content = node.path("choices")
+                                .get(0)
+                                .path("delta")
+                                .path("content")
+                                .asText("");
+
+                        if (!content.isBlank()) {
+                            consumer.accept(content);
+                        }
+
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                });
+    }
 }

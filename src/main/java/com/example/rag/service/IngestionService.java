@@ -1,6 +1,6 @@
 package com.example.rag.service;
 
-import com.example.rag.RagProperties;
+import com.example.rag.config.RagProperties;
 import com.example.rag.dto.response.DeleteFileResponseDTO;
 import com.example.rag.dto.response.FileInfoDTO;
 import com.example.rag.dto.response.UploadResponseDTO;

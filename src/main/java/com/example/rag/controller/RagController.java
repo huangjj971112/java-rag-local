@@ -1,7 +1,7 @@
 package com.example.rag.controller;
 
 
-import com.example.rag.RagProperties;
+import com.example.rag.config.RagProperties;
 
 import com.example.rag.dto.response.Source;
 import com.example.rag.llm.zhipu.ZhipuChatClient;
