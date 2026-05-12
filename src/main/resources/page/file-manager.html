@@ -306,8 +306,8 @@
       return;
     }
 
-    fetch("http://localhost:8080/ingest/file?fileHash=" + encodeURIComponent(fileHash), {
-      method: "DELETE"
+    fetch("http://localhost:8080/ingest/deleteFile?fileHash=" + encodeURIComponent(fileHash), {
+      method: "POST"
     })
             .then(async res => {
               if (!res.ok) {

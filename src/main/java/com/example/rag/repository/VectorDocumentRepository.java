@@ -4,12 +4,15 @@ import com.example.rag.dto.response.FileInfoDTO;
 import com.example.rag.dto.response.PageResultDTO;
 import com.example.rag.mapper.VectorDocumentMapper;
 import lombok.RequiredArgsConstructor;
+import org.apache.ibatis.annotations.Mapper;
 import org.springframework.stereotype.Repository;
+import org.springframework.stereotype.Service;
 
 import java.util.List;
 
 @Repository
 @RequiredArgsConstructor
+@Service
 public class VectorDocumentRepository {
 
     private final VectorDocumentMapper vectorDocumentMapper;

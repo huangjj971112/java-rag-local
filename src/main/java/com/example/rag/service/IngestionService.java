@@ -4,6 +4,7 @@ import com.example.rag.config.RagProperties;
 import com.example.rag.dto.response.DeleteFileResponseDTO;
 import com.example.rag.dto.response.FileInfoDTO;
 import com.example.rag.dto.response.UploadResponseDTO;
+import com.example.rag.repository.VectorDocumentRepository;
 import com.example.rag.util.HashUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,6 +12,7 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
@@ -24,16 +26,13 @@ import java.util.*;
 public class IngestionService {
 
     private static final Logger log = LoggerFactory.getLogger(IngestionService.class);
+    @Autowired
+    private  VectorStore vectorStore;
+    @Autowired
+    private  RagProperties ragProperties;
+    @Autowired
+    private  VectorDocumentRepository vectorDocumentRepository;
 
-    private final VectorStore vectorStore;
-    private final RagProperties ragProperties;
-    private final JdbcTemplate jdbcTemplate;
-
-    public IngestionService(VectorStore vectorStore, RagProperties ragProperties, JdbcTemplate jdbcTemplate) {
-        this.vectorStore = vectorStore;
-        this.ragProperties = ragProperties;
-        this.jdbcTemplate = jdbcTemplate;
-    }
 
     public void ingest() throws Exception {
 
@@ -290,11 +289,8 @@ public class IngestionService {
     }
 
     public boolean existsByFileHash(String fileHash) {
-        String sql = "SELECT COUNT(*) FROM vector_store WHERE metadata ->> 'fileHash' = ?";
 
-        Integer count = jdbcTemplate.queryForObject(sql, Integer.class, fileHash);
-
-        return count != null && count > 0;
+        return vectorDocumentRepository.existsByFileHash(fileHash);
     }
 
     public DeleteFileResponseDTO deleteByFileHash(String fileHash) {
@@ -305,7 +301,7 @@ public class IngestionService {
 
         String sql = "DELETE FROM vector_store WHERE metadata ->> 'fileHash' = ?";
 
-        int rows = jdbcTemplate.update(sql, fileHash);
+        int rows = vectorDocumentRepository.deleteByFileHash(fileHash);
 
         if (rows == 0) {
             log.warn("删除失败：fileHash不存在或已被删除 fileHash={}", fileHash);
@@ -340,14 +336,7 @@ public class IngestionService {
             ORDER BY metadata ->> 'fileName'
             """;
 
-        List<FileInfoDTO> list = jdbcTemplate.query(sql, (rs, rowNum) ->
-                FileInfoDTO.builder()
-                        .fileName(rs.getString("file_name"))
-                        .fileHash(rs.getString("file_hash"))
-                        .chunks(rs.getInt("chunks"))
-                        .build()
-        );
-
+        List<FileInfoDTO> list = vectorDocumentRepository.listFiles();
         log.info("查询数据列表长度{}", list.size());
 
         return list;
