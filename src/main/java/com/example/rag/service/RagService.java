@@ -5,6 +5,7 @@ import com.example.rag.chat.LocalChatMemory;
 import com.example.rag.config.RagProperties;
 import com.example.rag.dto.response.SourceVO;
 import com.example.rag.llm.zhipu.ZhipuChatClient;
+import com.example.rag.rerank.CrossEncoderRerankService;
 import com.example.rag.rerank.LlmRerankService;
 import com.example.rag.rerank.RuleRerankService;
 import com.example.rag.rewrite.MultiQueryService;
@@ -36,6 +37,7 @@ public class RagService {
     private final MultiQueryService multiQueryService;
     private final RuleRerankService ruleRerankService;
     private final LlmRerankService llmRerankService;
+    private final CrossEncoderRerankService crossEncoderRerankService;
 
     private final ExecutorService executorService = Executors.newFixedThreadPool(4);
 
@@ -84,23 +86,13 @@ public class RagService {
                 log.info("MultiQuery 去重后 recallDocs={}", recallDocs.size());
 
                 // 6. Rerank
-                List<Document> docs;
-
-                if (ragProperties.useLlmRerank()) {
-                    docs = llmRerankService.rerank(
-                            question,
-                            rewrittenQuery,
-                            recallDocs,
-                            ragProperties.finalTopK()
-                    );
-                } else {
-                    docs = ruleRerankService.rerank(
-                            question,
-                            rewrittenQuery,
-                            recallDocs,
-                            ragProperties.finalTopK()
-                    );
-                }
+                List<Document> docs =
+                        crossEncoderRerankService.rerank(
+                                question,
+                                rewrittenQuery,
+                                recallDocs,
+                                ragProperties.finalTopK()
+                        );
 
                 log.info("召回数量={}, 重排后数量={}", recallDocs.size(), docs.size());
 
