@@ -22,6 +22,13 @@ spring:
     ollama:
       base-url: http://localhost:11434
 
+      embedding:
+        options:
+          model: mxbai-embed-large
+
+      connection-timeout: 30s
+      read-timeout: 300s
+
     vectorstore:
       pgvector:
         dimensions: 1024

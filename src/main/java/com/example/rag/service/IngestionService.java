@@ -176,27 +176,37 @@ public class IngestionService {
 
         List<Document> uniqueDocs = splitAndDeduplicate(docs, fileName, fileHash);
 
-        int batchSize = 32;
+        int batchSize = 15;
         int successCount = 0;
+        try{
+            for (int i = 0; i < uniqueDocs.size(); i += batchSize) {
+                List<Document> batch = uniqueDocs.subList(i, Math.min(i + batchSize, uniqueDocs.size()));
 
-        for (int i = 0; i < uniqueDocs.size(); i += batchSize) {
-            List<Document> batch = uniqueDocs.subList(i, Math.min(i + batchSize, uniqueDocs.size()));
+                try {
+                    vectorStore.add(batch);
+                    successCount += batch.size();
 
-            try {
-                vectorStore.add(batch);
-                successCount += batch.size();
+                    log.info("批量入库完成: {}/{}",
+                            Math.min(i + batchSize, uniqueDocs.size()),
+                            uniqueDocs.size());
 
-                log.info("批量入库完成: {}/{}",
-                        Math.min(i + batchSize, uniqueDocs.size()),
-                        uniqueDocs.size());
+                    Thread.sleep(300);
 
-            } catch (Exception e) {
-                log.error("批量入库失败: {}/{}，原因: {}",
-                        i,
-                        uniqueDocs.size(),
-                        e.getMessage(),
-                        e);
+
+                } catch (Exception e) {
+                    log.error("批量入库失败: {}/{}，原因: {}",
+                            i,
+                            uniqueDocs.size(),
+                            e.getMessage(),
+                            e);
+                }
             }
+        }catch (Exception e){
+            log.error("文件入库失败，开始回滚 fileName={}, fileHash={}", fileName, fileHash, e);
+
+            vectorDocumentRepository.deleteByFileHash(fileHash);
+
+            throw new RuntimeException("文件入库失败，已清理部分入库数据", e);
         }
 
         if (successCount == 0) {
